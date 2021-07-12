@@ -32,16 +32,14 @@ l_out <- BatchGetSymbols(tickers,
                          first.date = first_date,
                          last.date = last_date)
 
-# select columns and calculated log_ret and arim_ret
-df_data <- l_out$df.tickers %>%
-  mutate(log_ret = log(price.adjusted/dplyr::lag(price.adjusted) ),
-         arim_ret = price.adjusted/dplyr::lag(price.adjusted) - 1)
-
-df_prices <- reshape.wide(df_data)$price.adjusted %>%
+# Omit weekends, when legacy markets do not trade. Consider only weekdays trading data
+df_prices <- reshape.wide(l_out$df.tickers)$price.adjusted %>%
   na.omit()
 
+# reset row index
 row.names(df_prices) <- NULL
 
+# Create dataframe containing log returns
 df_logret <- select(df_prices, !'ref.date') %>%
   as.matrix() %>%
   price2ret() %>%
@@ -52,12 +50,7 @@ df_logret <- select(df_prices, !'ref.date') %>%
 row.names(df_logret) <- NULL
 
 # save data into file
-data_out <- 'data/raw-data.rds'
-write_rds(df_data, data_out)
-
-prices_out <- 'data/prices.rds'
-write_rds(df_prices, prices_out)
-
-logret_out <- 'data/logret.rds'
-write_rds(df_logret, logret_out)
+write_rds(l_out, 'data/raw-data.rds')
+write_rds(df_prices, 'data/prices.rds')
+write_rds(df_logret, 'data/logret.rds')
 

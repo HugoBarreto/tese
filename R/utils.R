@@ -1,5 +1,5 @@
-exclude_date <- function(tickers) {
-  tickers[!(tickers %in% 'ref.date')]
+exclude_element <- function(vector, e=NULL) {
+  vector[!(vector %in% e)]
 }
 
 #' Convert prices to returns
