@@ -1,8 +1,29 @@
+#' Convert prices to discrete returns
+#'
+#' @param prices series of price data. prices can be a column vector or a matrix
+#'
+#' @return NUMOBS-1 Vector or (NUMOBS-1)-by-Col Matrix
+#' @export
+#'
+#' @examples
+#' x <- 1:12 ; dim(x) <- c(3,4)
+#' discrete_returns(x)
+discrete_returns <- function(prices) {
+  prices[-1,]/prices[-nrow(prices),] - 1
+}
+
+#' Exclude elements from vector
+#'
+#' @param vector target vector
+#' @param e elements to be excluded
+#'
+#' @return vector without element e
+#' @export
 exclude_element <- function(vector, e=NULL) {
   vector[!(vector %in% e)]
 }
 
-#' Convert prices to returns
+#' Convert prices to log returns
 #'
 #' @param p Time series of price data. p can be a column vector or a matrix
 #'

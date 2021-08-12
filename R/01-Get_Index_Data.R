@@ -19,38 +19,38 @@ tickers <- c('URTH', 'EEM', 'SPY', 'IEF', 'AGG', 'TIP', 'GLD', 'GSG', 'BTC-USD',
 library(BatchGetSymbols)
 library(tidyverse)
 
-# change directory to where the script located
+# change working directory to the script's parent folder location
 my_d <- dirname(rstudioapi::getActiveDocumentContext()$path)
 setwd(my_d)
 setwd('..')
+
+source('R/utils.R')
 
 # makes sure the directory "data" exists
 if (!dir.exists('data')) dir.create('data')
 
 # download price data for "my_ticker"
-l_out <- BatchGetSymbols(tickers,
+raw_data <- BatchGetSymbols(tickers,
                          first.date = first_date,
                          last.date = last_date)
 
 # Omit weekends, when legacy markets do not trade. Consider only weekdays trading data
-df_prices <- reshape.wide(l_out$df.tickers)$price.adjusted %>%
+df_prices <- reshape.wide(raw_data$df.tickers)$price.adjusted %>%
   na.omit()
 
 # reset row index
 row.names(df_prices) <- NULL
 
-# Create dataframe containing log returns
-df_logret <- select(df_prices, !'ref.date') %>%
-  as.matrix() %>%
-  price2ret() %>%
-  as_tibble() %>%
+# Create dataframe containing discrete daily returns
+df_ret <- dplyr::select(df_prices, !'ref.date') %>%
+  discrete_returns %>%
   mutate(ref.date = df_prices$ref.date[-1]) %>%
   na.omit()
 
-row.names(df_logret) <- NULL
+row.names(df_ret) <- NULL
 
 # save data into file
-write_rds(l_out, 'data/raw-data.rds')
+write_rds(raw_data, 'data/raw-data.rds')
 write_rds(df_prices, 'data/prices.rds')
-write_rds(df_logret, 'data/logret.rds')
-
+write_rds(df_ret, 'data/ret.rds')
+# write_rds(tickers, 'data/tickers.rds')
