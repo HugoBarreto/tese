@@ -23,7 +23,7 @@ source('R/garch_fcts.R')
 df_ret <- read_rds('data/ret.rds')
 
 ## Only for staging phase - Not Final
-df_ret <- df_ret[c('ref.date', 'SPY','BTC-USD', 'ETH-USD')]
+df_ret <- df_ret[,c('SPY','BTC-USD', 'ETH-USD')]
 tickers <- exclude_element(names(df_ret), 'ref.date')
 
 write_rds(tickers, 'data/tickers.rds')
@@ -62,7 +62,7 @@ estimate_garch <- function(data,
                                               garchOrder = c(arch_lag, garch_lag)),
                         distribution.model = distribution_to_estimate)
 
-  my_garch <- ugarchfit(spec = my_spec, data = data[[ticker]])
+  my_garch <- ugarchfit(spec = my_spec, data = data[,ticker])
 
   return(my_garch)
 }

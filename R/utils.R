@@ -9,7 +9,27 @@
 #' x <- 1:12 ; dim(x) <- c(3,4)
 #' discrete_returns(x)
 discrete_returns <- function(prices) {
+  if ("xts" %in% class(prices)){
+    return(prices/lag.xts(prices) - 1)
+  }
   prices[-1,]/prices[-nrow(prices),] - 1
+}
+
+#' Convert discrete returns to prices
+#'
+#' @param returns series of discrete returns data.
+#' @param initial_prices vector of initial prices, must be equal to ncol(returns)
+#'
+#' @return array of prices not including initial prices
+#' @export
+#'
+#' @examples
+#' x <- 1:12 ; dim(x) <- c(3,4)
+#' discrete_returns(x)
+discrete_returns2prices <- function(returns, initial_prices){
+  prices <- cumprod(returns + 1) %*% diag(initial_prices)
+  attributes(prices) <- attributes(returns)
+  prices
 }
 
 #' Exclude elements from vector
@@ -22,6 +42,20 @@ discrete_returns <- function(prices) {
 exclude_element <- function(vector, e=NULL) {
   vector[!(vector %in% e)]
 }
+
+#' Split array in one of its dimension transforming into a list of arrays
+#' with one less dimension.
+#'
+#' @param a an array
+#' @param d dimension
+#'
+#' @return list of arrays
+#' @export
+split.along.dim <- function(a, d) {
+  setNames(lapply(split(a, arrayInd(seq_along(a), dim(a))[, d]),
+                  array, dim = dim(a)[-d], dimnames(a)[-d]),
+           dimnames(a)[[d]])
+  }
 
 #' Convert prices to log returns
 #'

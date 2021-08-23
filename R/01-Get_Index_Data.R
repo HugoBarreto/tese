@@ -38,16 +38,12 @@ raw_data <- BatchGetSymbols(tickers,
 df_prices <- reshape.wide(raw_data$df.tickers)$price.adjusted %>%
   na.omit()
 
-# reset row index
-row.names(df_prices) <- NULL
+df_prices <- as.xts(x = subset(df_prices, select= -ref.date),
+                    order.by = subset(df_prices, select=ref.date, drop = TRUE))
 
 # Create dataframe containing discrete daily returns
-df_ret <- dplyr::select(df_prices, !'ref.date') %>%
-  discrete_returns %>%
-  mutate(ref.date = df_prices$ref.date[-1]) %>%
+df_ret <- discrete_returns(df_prices) %>%
   na.omit()
-
-row.names(df_ret) <- NULL
 
 # save data into file
 write_rds(raw_data, 'data/raw-data.rds')
