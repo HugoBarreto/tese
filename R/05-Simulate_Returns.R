@@ -24,12 +24,15 @@ tickers <- read_rds('data/tickers.rds')
 garch_models <- read_rds('data/garch_models.rds')
 garch_residuals_dist <- read_rds('data/residuals_dist.rds')
 fitted_copula <-read_rds('data/fitted_copula.rds')
+dates_2021Q2 <- read_rds('data/dates_2021Q2')
+
+# Set simulation horizon based on 2021 2nd quarter NYSE trading calendar
 
 
 # Simulation Parameters
 nTickers <-  length(tickers)
 nTrials <- 2000
-horizon <- 21
+horizon <- length(dates_2021Q2)
 
 # Simulate nTrials*horizon independent samples from vector (u_1, ..., u_d) with
 # distribution C (a student-t copula)

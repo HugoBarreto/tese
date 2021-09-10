@@ -20,11 +20,11 @@ source('R/utils.R')
 source('R/garch_fcts.R')
 
 # Importing returns data
-df_ret <- read_rds('data/ret.rds')
+price_returns <- read_rds('data/ret.rds')
 
 ## Only for staging phase - Not Final
-df_ret <- df_ret[,c('SPY','BTC-USD', 'ETH-USD')]
-tickers <- exclude_element(names(df_ret), 'ref.date')
+price_returns <- price_returns[,c('SPY','BTC-USD', 'ETH-USD')]
+tickers <- exclude_element(names(price_returns), 'ref.date')
 
 write_rds(tickers, 'data/tickers.rds')
 
@@ -35,7 +35,7 @@ arch_lag <- 1 # lag in arch effect (1 in paper)
 garch_lag <- 1 # lag in garch effect (1 in paper)
 garch_model <- c('gjrGARCH') # see rugarch manual for more
 distribution_to_estimate <- 'std' # distribution used in all models
-my_html_file <- 'tabs/tab04-estimation_garch.html' # where to save html file?
+#my_html_file <- 'tabs/tab04-estimation_garch.html' # where to save html file?
 # END OPTIONS
 
 # close all opened windows
@@ -80,7 +80,7 @@ models_to_estimate <- expand_grid(ticker = tickers,
 
 
 # Estimate all GARCH models
-garch_models <- pmap(.l = models_to_estimate, .f = estimate_garch, df_ret)
+garch_models <- pmap(.l = models_to_estimate, .f = estimate_garch, price_returns)
 names(garch_models) <- tickers
 
 write_rds(garch_models, 'data/garch_models.rds')

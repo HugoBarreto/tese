@@ -9,7 +9,7 @@
 ## MAIN OPTIONS (fell free to edit it)
 
 first_date <- '2015-10-01'
-last_date <- '2021-01-31'
+last_date <- '2021-07-01' # fetching american stock data from yahoo misses last date https://github.com/joshuaulrich/quantmod/issues/258
 tickers <- c('URTH', 'EEM', 'SPY', 'IEF', 'AGG', 'TIP', 'GLD', 'GSG', 'BTC-USD', 'ETH-USD')
 
 
@@ -18,6 +18,7 @@ tickers <- c('URTH', 'EEM', 'SPY', 'IEF', 'AGG', 'TIP', 'GLD', 'GSG', 'BTC-USD',
 # load required libraries
 library(BatchGetSymbols)
 library(tidyverse)
+library(xts)
 
 # change working directory to the script's parent folder location
 my_d <- dirname(rstudioapi::getActiveDocumentContext()$path)
@@ -35,18 +36,29 @@ raw_data <- BatchGetSymbols(tickers,
                          last.date = last_date)
 
 # Omit weekends, when legacy markets do not trade. Consider only weekdays trading data
-df_prices <- reshape.wide(raw_data$df.tickers)$price.adjusted %>%
+prices <- reshape.wide(raw_data$df.tickers)$price.adjusted %>%
   na.omit()
 
-df_prices <- as.xts(x = subset(df_prices, select= -ref.date),
-                    order.by = subset(df_prices, select=ref.date, drop = TRUE))
+prices <- as.xts(x = subset(prices, select= -ref.date),
+                    order.by = subset(prices, select=ref.date, drop = TRUE))
+
+stopifnot(index(tail(prices, 1)) == "2021-06-30")
 
 # Create dataframe containing discrete daily returns
-df_ret <- discrete_returns(df_prices) %>%
+prices_rets <- discrete_returns(prices) %>%
   na.omit()
+
+pricesB2021Q2 <- prices["/2021-03"]
+prices2021Q2 <- prices["2021-04/"]
+
+prices_retsB2021Q2 <- prices_rets["/2021-03"]
+prices_rets2021Q2 <- prices_rets["2021-04/"]
 
 # save data into file
 write_rds(raw_data, 'data/raw-data.rds')
-write_rds(df_prices, 'data/prices.rds')
-write_rds(df_ret, 'data/ret.rds')
+write_rds(pricesB2021Q2, 'data/prices.rds')
+write_rds(prices2021Q2, 'data/prices2021Q2.rds')
+write_rds(prices_retsB2021Q2, 'data/ret.rds')
+write_rds(prices_rets2021Q2, 'data/ret2021Q2.rds')
+write_rds(index(prices_rets2021Q2), 'data/dates_2021Q2')
 # write_rds(tickers, 'data/tickers.rds')

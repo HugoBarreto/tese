@@ -10,7 +10,7 @@
 #' discrete_returns(x)
 discrete_returns <- function(prices) {
   if ("xts" %in% class(prices)){
-    return(prices/lag.xts(prices) - 1)
+    return(prices/xts::lag.xts(prices) - 1)
   }
   prices[-1,]/prices[-nrow(prices),] - 1
 }
