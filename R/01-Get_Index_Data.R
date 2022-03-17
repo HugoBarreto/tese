@@ -1,10 +1,10 @@
-# A Garch Tutorial with R - Get Index data from Yahoo Finance
-# Paper at <https://rac.anpad.org.br/index.php/rac/article/view/1420>
+# Get Index data from Yahoo Finance
 #
-# This script will import price data for market index Ibovespa (or any other) from Yahoo Finance.
+# This script will import price data from different markets from Yahoo Finance.
+# The resulting datasets are serialized (saved) in rds files, to be used in the next steps.
 #
-# The resulting dataset is serialized (saved) in a rds file named data/RAC-GARCH-Data.rds,
-# to be used in the next step.
+#! This script is no longer the main one in this step of the study. It remains here to show what has been done before data corruption
+#! in the origin. The correct one to replicate the study is 01b-Get_Index_data.R
 
 ## MAIN OPTIONS (fell free to edit it)
 
