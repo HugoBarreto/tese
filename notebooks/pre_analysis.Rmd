@@ -1,0 +1,111 @@
+---
+title: "Pre Analysis"
+output: html_notebook
+---
+
+<!-- Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.  -->
+
+<!-- Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*. -->
+
+<!-- When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file). -->
+
+<!-- The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed. -->
+
+
+```{r, setup, include=FALSE}
+if (getwd() != "D:/Hugo/Academia/Mestrado/Tese/repo") {
+  knitr::opts_knit$set(root.dir = '"D:/Hugo/Academia/Mestrado/Tese/repo"')  
+}
+```
+
+```{r,include=FALSE, echo=FALSE}
+# Libraries Import
+library(tidyverse)
+
+library(xts)
+```
+
+Getting daily returns and volume.
+
+```{r}
+dailyret_training <- read_rds('data/ret_training.rds')
+
+btc_ret <- dailyret_training[,'BTC-USD']
+eth_ret <- dailyret_training[,'ETH-USD']
+
+hist_data_raw <- read_rds('data/raw-data-eth-hist.rds')
+# hist_price <- reshape.wide(hist_data_raw$df.tickers)$price.adjusted
+hist_volume <- reshape.wide(hist_data_raw$df.tickers)$volume
+
+
+# hist_price_eth <- as.xts(x = subset(hist_price, select= `ETH-USD`),
+#                     order.by = subset(hist_price, select=ref.date, drop = TRUE))
+
+hist_volume_eth <- as.xts(x = subset(hist_volume, select= `ETH-USD`),
+       order.by = subset(hist_volume, select=ref.date, drop = TRUE))
+hist_volume_btc <- as.xts(x = subset(hist_volume, select= `BTC-USD`),
+       order.by = subset(hist_volume, select=ref.date, drop = TRUE))
+```
+
+
+# Comparando os diferentes Bonds ETFs
+
+```{r}
+obs <- dailyret_training + 1
+obs <- apply(obs, 2, cumprod) * 100
+obs <- as.xts(obs)
+
+plot(obs[,c('AGG','IEF','SCHP')], legend.loc='topleft')
+```
+
+
+
+
+# Definindo Cutoff dos dados
+
+* ETH Volume (choose a significant threshold - 10M,50M,100M daily)
+* ETH Volume/BTC Volume
+* ETH rolling sd 30d,60d,90d
+
+
+```{r}
+eth_vol_week_avg <- apply.weekly(hist_volume_eth, mean)
+btc_vol_week_avg <- apply.weekly(hist_volume_btc, mean)
+
+
+vol_week_avg <- merge.xts(btc_vol_week_avg,eth_vol_week_avg)
+
+plot(log10(vol_week_avg/1000000), subset="2016-06/2018-06", legend.loc='topleft')
+```
+
+
+```{r}
+eth_btc_vol <- hist_volume_eth / hist_volume_btc
+eth_btc_vol_week_avg <- apply.weekly(eth_btc_vol, mean)
+
+
+plot(eth_btc_vol_week_avg, subset="2016-06/2018-06")
+```
+
+
+```{r}
+eth_ret_sd10 <- rollapply(eth_ret, width=10, FUN = sd)
+eth_ret_sd30 <- rollapply(eth_ret, width=30, FUN = sd)
+eth_ret_sd90 <- rollapply(eth_ret, width=90, FUN = sd)
+
+eth_ret_sd <- merge(eth_ret_sd90,eth_ret_sd30,eth_ret_sd10)
+names(eth_ret_sd) <- c("sd90","sd30","sd10")
+
+plot(eth_ret_sd, subset="2016-06/2018-06", legend.loc='topleft')
+```
+
+
+
+```{r}
+plot(rollmax(abs(eth_ret), 21), subset="2016-06/2018-06")
+```
+
+
+```{r}
+plot(rollmedian(eth_ret, 21))
+```

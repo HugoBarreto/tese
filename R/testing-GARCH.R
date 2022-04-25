@@ -175,7 +175,39 @@ ggAcf(model.residuals)
 # My data
 df_logret <- read_rds('data/logret.rds')
 
+### Understranding rugarch library
+library(rugarch)
+
+## Not run:
+data(sp500ret)
+ctrl = list(RHO = 1,DELTA = 1e-8,MAJIT = 100,MINIT = 650,TOL = 1e-6)
+spec = ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(1,1)),
+                  mean.model = list(armaOrder = c(1,1), include.mean = TRUE),
+                  distribution.model = "std")
+egarch.fit = ugarchfit(data = sp500ret[,1,drop=FALSE], spec = spec,
+                       solver = "solnp", solver.control = ctrl)
+
+spec = ugarchspec(variance.model = list(model = "eGARCH", garchOrder = c(1,1)),
+                  mean.model = list(armaOrder = c(1,1), include.mean = TRUE),
+                  distribution.model = "std", fixed.pars = as.list(coef(egarch.fit)))
+egarch.filter = ugarchfilter(data = sp500ret[,1,drop=FALSE], spec = spec)
+
+
+data(dmbp)
+spec = ugarchspec()
+fit = ugarchfit(data = dmbp[,1], spec = spec)
+forc = ugarchforecast(fit, n.ahead=20)
+forc
+
+spec = ugarchspec(fixed.pars = as.list(coef(fit)))
+forc = ugarchforecast(fitORspec = spec, data = dmbp[,1], n.ahead=5, out.sample = 5, n.roll = 2)
+forc
+fitted(forc)
 
 
 
-
+spec = ugarchspec()
+fit = ugarchfit(data = dmbp[,1], spec = spec)
+sim = ugarchsim(fit,n.sim=1000, n.start=1, m.sim=1, startMethod="sample")
+sim
+head(sigma(sim))

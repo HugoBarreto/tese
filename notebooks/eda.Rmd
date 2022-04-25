@@ -1,0 +1,127 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+<!-- Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.  -->
+
+<!-- Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*. -->
+
+<!-- When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file). -->
+
+<!-- The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed. -->
+
+
+
+```{r, setup, include=FALSE}
+if (getwd() != "D:/Hugo/Academia/Mestrado/Tese/repo") {
+  knitr::opts_knit$set(root.dir = "D:/Hugo/Academia/Mestrado/Tese/repo")
+}
+```
+
+
+```{r,include=FALSE, echo=FALSE}
+# Libraries Import
+library(kableExtra)
+library(tidyverse)
+library(xts)
+library(PerformanceAnalytics)
+```
+
+Importando os dados de retorno
+
+Getting daily returns and volume.
+
+
+```{r}
+dailyret_training <- read_rds('data/ret_training.rds')
+prices_training <- read_rds('data/prices_training.rds')
+```
+
+
+# Tabelas e Gráficos descritivos dos dados
+
+## Tabela 1
+
+Descrição estatística dos retornos
+
+Contém: 
+- mean
+- median
+- 0.05 quantil
+- 0.95 quantil
+- min
+- max
+- sd
+- skewness
+- kurtosis
+
+
+```{r}
+summ_df <- do.call(cbind, lapply(
+  as.data.frame(coredata(dailyret_training)), 
+  summary))
+
+```
+
+
+
+```{r}
+compute_performance = function(returns){
+  period_length = nrow(returns)+1
+  vol = sd(returns) * sqrt(252)
+  total_return = prod(returns+1) - 1
+  annualized_return = (1 + total_return)^(252/period_length) - 1 # annualized
+  sharpe_vol = annualized_return/vol
+  var_5 = quantile(returns, 0.05, na.rm = T)
+  #sharpe_var = -annualized_return/quantile(returns, 0.05, na.rm = T)
+  maxDrawdown = -maxDrawdown(returns)
+  
+  return(data.frame(vol = vol, #total_return = total_return, 
+                    annualized_return = annualized_return, 
+                    sharpe_vol = sharpe_vol, var_5 = var_5, #sharpe_var = sharpe_var,
+                    maxDrawdown = maxDrawdown))
+}
+```
+
+```{r}
+performance <- do.call(rbind.data.frame, lapply(dailyret_training, compute_performance))
+# performance <- lapply(dailyret_training, compute_performance) | changes columns to rows respective to the used formula
+# do not transform sharpe column to %
+performance[-3] <- sapply(performance[-3], function(x) scales::percent(x, big.mark = ',', accuracy = 0.01))
+```
+
+Code to construct latex table. Execute on console.
+
+```{r}
+performance %>%
+  kbl(caption=" Summary statistics of the assets. The volatility, return, and Sharpe ratio are annualised.",
+      format= "latex",
+      vline = "",
+      linesep = "",
+      col.names = c("Volatility","Annualized Return","Sharpe","VaR_{0.05}","Max. Drawdown"),
+      align="lcccr",
+      digits = 4) %>%
+   kable_classic_2(full_width = F, html_font = "helvetica")
+```
+
+
+Plot figure with total returns since inception. Initial endownment of 100 to each asset.
+
+
+```{r}
+obs <- dailyret_training + 1
+obs <- apply(obs, 2, cumprod) * 100
+obs <- as.xts(obs)
+
+plot(obs[,c('AGG','IEF','SCHP')], legend.loc='topleft')
+```
+
+
+
+
+
+
+
+
+
