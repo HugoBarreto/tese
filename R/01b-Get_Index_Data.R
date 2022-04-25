@@ -7,16 +7,16 @@
 
 first_date <- '2015-10-01'
 last_date <- '2022-01-02' # fetching american stock data from yahoo misses last date https://github.com/joshuaulrich/quantmod/issues/258
-tickers <- c('VTI','VOO','URTH','IEF', 'AGG','SCHP','GLD','GSG','BTC-USD','ETH-USD')
+tickers <- c('VTI','QQQ','URTH', 'AGG','SCHP','GLD','BTC-USD','ETH-USD')
 
 # VTI - Vanguard Total Stock Market ETF (US equities market)
+# QQQ - Invesco QQQ Trust
 # VOO - Vanguard S&P 500 ETF | cheaper expenses than SPY
 # URTH - iShares MSCI World ETF | cover 85% of the developed world's market capitalization
-# IEF - iShares 7-10 Year Treasury Bond ETF | Comparable ETFs: SCHR, VGIT, IEI
 # AGG - iShares Core U.S. Aggregate Bond ETF | Tracks an index of US investment-grade bonds
 # SCHP - Schwab U.S. TIPS ETF | cheaper expenses than TIP
 # GLD - SPDR Gold Trust | Comparable ETFs: IAU, GLDM, SGOL
-# GSG - iShares S&P GSCI Commodity Indexed Trust | exposure to a production-weighted index of front-month commodities futures contracts.
+
 
 
 ## END OPTIONS
