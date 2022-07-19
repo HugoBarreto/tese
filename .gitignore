@@ -2,4 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
-./data/backtest_portfolios_simulated_data.rds
+**/*.pdf
+**/*.png
+**/*.tex
+
+data/backtest_portfolios_simulated_data.rds

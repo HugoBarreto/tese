@@ -1,9 +1,6 @@
-# A Garch Tutorial with R - Create Descriptive Figure
-# Paper at <https://rac.anpad.org.br/index.php/rac/article/view/1420>
+# <Paper Name>
 #
-# This script will use the financial data from previous script and, additionally,
-# import inflation data from the Brazilian Central Bank Database
-# <https://www3.bcb.gov.br/sgspub/localizarseries/localizarSeries.do?method=prepararTelaLocalizarSeries>
+# This script will ...
 # , producing Figure 01 at the end of its execution
 
 # OPTIONS
@@ -33,12 +30,19 @@ source('R/utils.R')
 source('R/garch_fcts.R')
 
 # get price data
-df_prices <- read_rds('data/prices.rds')
-df_logret <- read_rds('data/logret.rds')
-series_name <- names(df_logret)
+prices <- read_rds('data/prices.rds')
+logret_training <- read_rds('data/logret_training.rds')
 
-# log returns plot
-df_index <-  select(df_logret, !'ref.date') %>%
+series_name <- names(logret_training)
+
+
+
+
+################################################################################################
+
+
+##### log returns plot #####
+df_index <-  logret_training %>%
   cumsum() %>%
   mutate(ref.date = df_logret$ref.date) %>%
   gather(key = "variable", value = "value", -ref.date)
@@ -66,9 +70,11 @@ p1 <- ggplot(df_index, aes(x = ref.date, y= value)) +
        # caption = 'Data from Yahoo Finance') +
   # theme_bw(base_family = "TT Times New Roman")
 
-# Autocorrelation plot
 
-ggAcf(df_logret$`BTC-USD`^2)
+
+
+
+
 
 # calculate largest absolute price variations
 largest_tab <- df_prices %>%
@@ -106,9 +112,59 @@ x11() ; p1 ; ggsave(filename = paste0('figs/fig02a_', series_name, '_prices.png'
 x11() ; p2 ; ggsave(filename = paste0('figs/fig02b_', series_name, '_returns.png'),
                     plot = p2)
 
-# build autocorrelagram
-p <- ggAcf(x = df_prices$log_ret, lag.max = 10) +
-  labs(title = paste0('Autocorrelogram for the Log Returns of ', series_name)) +
-  theme_bw(base_family = "TT Times New Roman")
 
-x11()  ; p ; ggsave('figs/fig03_autocorrelation_logret.png')
+################################################################################################
+
+
+
+
+##### Series log returns #####
+custom_return_plot <- function(data){
+  datadf <- fortify.zoo(data)
+  names(datadf) <- c("Index", "value")
+  ggplot(datadf, aes(x=Index, y=value)) +
+    geom_line() +
+    ggtitle(dimnames(data)[[2]]) +
+    xlab("") + ylab("") + #ylim(c(-1,1)) +
+    theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+}
+
+logrets_plots <- lapply(logret_training, function(x) custom_return_plot(x))
+
+pdf("figs/logrets.pdf")
+grid.arrange(grobs=logrets_plots, ncol=3)
+dev.off()
+
+
+
+##### Autocorrelation plot #####
+
+custom_ggAcf <- function(data){
+  ggAcf(data) +
+    ggtitle(dimnames(data)[[2]]) +
+    xlab("") + ylab("") + #ylim(c(-1,1)) +
+    theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+}
+
+## Acf log-returns
+
+acf_plot <- lapply(logret_training, function(x) custom_ggAcf(x))
+
+pdf("figs/ACF.pdf")
+grid.arrange(grobs=acf_plot, ncol=3)
+dev.off()
+
+
+## Acf Square returns
+
+acf_square_plot <- lapply(logret_training, function(x) custom_ggAcf(x^2))
+
+pdf("figs/ACFsquare.pdf")
+grid.arrange(grobs=acf_square_plot, ncol=3)
+dev.off()
+
+
+
+
+
+
