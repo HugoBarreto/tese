@@ -187,3 +187,15 @@ void sgarchsimC(int *model, double *pars, int *idx, double *h, double *z, double
     e[i] = res[i]*res[i];
   }
 }
+
+
+
+########## Carmona gpd.fit example
+library('Rsafd')
+data('PCS')
+data('WSP')
+
+WSPLRet <-  diff(log(WSP))
+
+WSPLRet.est <- gpd.tail(WSPLRet,lower=-0.02,upper=0.02)
+WSPLRet.est
