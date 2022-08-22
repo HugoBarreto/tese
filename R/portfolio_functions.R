@@ -8,13 +8,13 @@ setwd('..')
 source('R/utils.R')
 
 # uniform portfolio function
-uniform_portfolio_fun <- function(dataset) {
+uniform_portfolio_fun <- function(dataset, ...) {
   N <- ncol(dataset$adjusted)
   return(rep(1/N, N))
 }
 
 # define quintile portfolio
-quintile_portfolio_fun <- function(dataset) {
+quintile_portfolio_fun <- function(dataset, ...) {
   X <- discrete_returns(dataset$adjusted)[-1]  # compute returns
   N <- ncol(X)
   # design quintile portfolio
@@ -25,7 +25,7 @@ quintile_portfolio_fun <- function(dataset) {
 }
 
 # define GMVP (with heuristic not to allow shorting)
-GMVP_portfolio_fun <- function(dataset) {
+GMVP_portfolio_fun <- function(dataset, ...) {
   X <- discrete_returns(dataset$adjusted)[-1]  # compute returns
   Sigma <- cov(X)  # compute SCM
   # design GMVP
@@ -35,7 +35,7 @@ GMVP_portfolio_fun <- function(dataset) {
 }
 
 # define Markowitz mean-variance portfolio
-# Markowitz_portfolio_fun <- function(dataset) {
+# Markowitz_portfolio_fun <- function(dataset, ...) {
 #   X <- discrete_returns(dataset$adjusted)[-1]  # compute returns
 #   mu <- colMeans(X)  # compute mean vector
 #   Sigma <- cov(X)  # compute the SCM
@@ -48,7 +48,7 @@ GMVP_portfolio_fun <- function(dataset) {
 # }
 
 # define Markowitz mean-variance portfolio
-Markowitz_portfolio_fun <- function(dataset) {
+Markowitz_portfolio_fun <- function(dataset, ...) {
   X <- discrete_returns(dataset$adjusted)[-1]  # compute returns
   N <- ncol(X)
   Sigma <- cov(X)
@@ -65,10 +65,23 @@ Markowitz_portfolio_fun <- function(dataset) {
   return(w/sum(w))
 }
 
-risk_parity_portfolio_fun <- function(dataset){
+risk_parity_portfolio_fun <- function(dataset, ...){
   X <- discrete_returns(dataset$adjusted)[-1]  # compute returns
   Sigma <- cov(X)
   w <- riskParityPortfolio(Sigma)$w
   w <- as.vector(w)
   return(w/sum(w))
+}
+
+IVP_portfolio_fun <- function(data, ...) {
+  X <- diff(log(data[[1]]))[-1]
+  sigma <- sqrt(diag(cov(X)))
+  w <- 1/sigma
+  w <- w/sum(w)
+
+  leverage <- parent.frame(n = 1)$leverage
+  if (is.null(leverage) || is.infinite(leverage))
+    return(w)
+  else
+    return(w * leverage)
 }

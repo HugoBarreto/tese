@@ -5,8 +5,6 @@
 # residuals' distribution as a GPD.
 
 library(tidyverse)
-library(FinTS)
-library(texreg)
 library(rugarch)
 library(Rsafd)
 library(copula)
@@ -20,29 +18,36 @@ source('R/utils.R')
 source('R/garch_fcts.R')
 
 # Importing data
-tickers <- read_rds('data/tickers.rds')
-garch_models <- read_rds('data/garch_models.rds')
-garch_residuals_dist <- read_rds('data/residuals_dist.rds')
+logret_test <- read_rds('data/logret_test.rds')
+tickers <- names(logret_test)
+
+selected_dynamic_models <- read_rds('data/selected_dynamic_models.rds')
+residuals_dist <- read_rds('data/residuals_dist.rds')
 fitted_copula <-read_rds('data/fitted_copula.rds')
-dates_2021Q2 <- read_rds('data/dates_2021Q2')
 
-# Set simulation horizon based on 2021 2nd quarter NYSE trading calendar
+# Set simulation horizon based on test data (2021 4th quarter NYSE trading calendar)
 
-
-# Simulation Parameters
+##### Simulation Parameters #####
 nTickers <-  length(tickers)
 nTrials <- 2000
-horizon <- length(dates_2021Q2)
+horizon <- nrow(logret_test)
+################################
+
+
 
 # Simulate nTrials*horizon independent samples from vector (u_1, ..., u_d) with
 # distribution C (a student-t copula)
 U <- rCopula(nTrials*horizon, copula = fitted_copula@copula)
 
+
+
 # Apply the quantile function (inverse cdf) to each U vector dimension, simulating
 # innovations to the garch models that carry the copula dependence structure
+stopifnot(residuals_dist %>% names == tickers) # Confirm that tickers are in the same order of residuals_dist
+
 Z <- sapply(seq_along(tickers),
                  function(i)
-                   matrix(gpd.2q(U[,i], garch_residuals_dist[[i]]), horizon, nTrials),
+                   matrix(gpd.2q(U[,i], residuals_dist[[i]]), horizon, nTrials),
             simplify = "array",
             USE.NAMES = FALSE)
 
@@ -52,22 +57,30 @@ sigma <- apply(Z, 3, sd)
 mu_paths <-  apply(Z, c(2,3), mean)
 sigma_paths <-  apply(Z, c(2,3), sd)
 
+# Plot the paths' mean of innovations hist for each asset
+par(mfrow=c(3,3))
 for (i in seq_along(mu)) {
   asset <- tickers[i]
-  hist(mu_paths[,i], main = bquote(paste("Histogram of ", mu, " from ", .(asset) , " innovations" )))
+  hist(mu_paths[,i], main = bquote(paste("Histogram of ", mu, " from ", .(asset) , " innovations" )), xlab = expression(mu))
   abline(v = mu[i], col="red", lwd=2)
-
 }
 
+# Plot the paths' sigma of innovations hist for each asset
+par(mfrow=c(3,3))
 for (i in seq_along(sigma)) {
-  hist(sigma_paths[,i], main = bquote(paste("Histogram of ", sigma, " from ", .(asset) , " innovations" )))
+  asset <- tickers[i]
+  hist(sigma_paths[,i], main = bquote(paste("Histogram of ", sigma, " from ", .(asset) , " innovations")), xlab = expression(sigma))
   abline(v = sigma[i], col="red", lwd=2)
 }
 
+
+
 # Simulate 'nTrials' independent paths starting from sample data with
 # time horizon 'horizon' for each asset individual returns
+stopifnot(selected_dynamic_models %>% names == tickers) # Confirm that tickers are in the same order of residuals_dist
+
 simulations <- lapply(1:nTickers,
-              function(j) ugarchsim(garch_models[[j]],
+              function(j) ugarchsim(selected_dynamic_models[[j]][[1]],
                                     n.sim = horizon, m.sim = nTrials,
                                     startMethod = "sample",
                                     custom.dist = list(name = "sample",

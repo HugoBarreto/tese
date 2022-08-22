@@ -31,7 +31,8 @@ required_pkgs <- c('tidyverse'      , 'ggtext'    , 'rugarch' ,
                    'kableExtra'     , 'forecast'  , 'writexl' ,
                    'copula'         , 'rgl'       , 'quantreg',
                    'Rsafd'          , 'Rcpp'      , 'gridExtra',
-                   'GGally'         , 'FRAPO'     , 'corrplot')
+                   'GGally'         , 'FRAPO'     , 'corrplot',
+                   'moments')
 
 # finds installed pkgs from R session
 installed_pkgs <- installed.packages()

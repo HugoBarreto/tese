@@ -1,3 +1,4 @@
+##### Price and (log|discrete) returns convertion functions
 #' Convert prices to discrete returns
 #'
 #' @param prices series of price data. prices can be a column vector or a matrix
@@ -8,7 +9,7 @@
 #' @examples
 #' x <- 1:12 ; dim(x) <- c(3,4)
 #' discrete_returns(x)
-discrete_returns <- function(prices) {
+prices2returns <- function(prices) {
   if ("xts" %in% class(prices)){
     return(prices/xts::lag.xts(prices) - 1)
   }
@@ -27,36 +28,11 @@ discrete_returns <- function(prices) {
 #' @examples
 #' x <- 1:12 ; dim(x) <- c(3,4)
 #' discrete_returns(x)
-discrete_returns2prices <- function(returns, initial_prices){
+returns2prices <- function(returns, initial_prices){
   prices <- cumprod(returns + 1) %*% diag(initial_prices)
   attributes(prices) <- attributes(returns)
   prices
 }
-
-#' Exclude elements from vector
-#'
-#' @param vector target vector
-#' @param e elements to be excluded
-#'
-#' @return vector without element e
-#' @export
-exclude_element <- function(vector, e=NULL) {
-  vector[!(vector %in% e)]
-}
-
-#' Split array in one of its dimension transforming into a list of arrays
-#' with one less dimension.
-#'
-#' @param a an array
-#' @param d dimension
-#'
-#' @return list of arrays
-#' @export
-split.along.dim <- function(a, d) {
-  setNames(lapply(split(a, arrayInd(seq_along(a), dim(a))[, d]),
-                  array, dim = dim(a)[-d], dimnames(a)[-d]),
-           dimnames(a)[[d]])
-  }
 
 #' Convert prices to log returns
 #'
@@ -96,6 +72,54 @@ logret2price <- function(r, startPrice=NULL){
     rbind(startPrice, t(startPrice* t(exp(1)**apply(r, 2, function(x) cumsum(x)))), deparse.level = 0)
   }
 }
+
+
+#' Convert log-returns to returns
+#'
+#' @param logret Array of log-returns. logret can be a column vector or a matrix
+#'
+#' @export
+logret2ret <- function(logret){
+  exp(logret) - 1
+}
+
+#' Convert returns to log-returns
+#'
+#' @param ret Array of returns. ret can be a column vector or a matrix
+#'
+#' @export
+logret2ret <- function(ret){
+  log(ret+1)
+}
+
+
+##############################
+
+#' Exclude elements from vector
+#'
+#' @param vector target vector
+#' @param e elements to be excluded
+#'
+#' @return vector without element e
+#' @export
+exclude_element <- function(vector, e=NULL) {
+  vector[!(vector %in% e)]
+}
+
+#' Split array in one of its dimension transforming into a list of arrays
+#' with one less dimension.
+#'
+#' @param a an array
+#' @param d dimension
+#'
+#' @return list of arrays
+#' @export
+split.along.dim <- function(a, d) {
+  setNames(lapply(split(a, arrayInd(seq_along(a), dim(a))[, d]),
+                  array, dim = dim(a)[-d], dimnames(a)[-d]),
+           dimnames(a)[[d]])
+  }
+
 
 #' Returns a percentage as character vector
 #'
