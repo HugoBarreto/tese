@@ -6,7 +6,8 @@
 ## MAIN OPTIONS (fell free to edit it)
 
 first_date <- '2015-10-01'
-last_date <- '2022-01-02' # fetching american stock data from yahoo misses last date https://github.com/joshuaulrich/quantmod/issues/258
+last_date <- '2022-09-30'
+last_date_BGS <- '2022-10-03' # fetching american stock data from yahoo misses last date https://github.com/joshuaulrich/quantmod/issues/258
 tickers <- c('VTI','QQQ','URTH', 'AGG','SCHP','GLD','TLT','BTC-USD','ETH-USD')
 
 training_date_period <- "2016-10/2021-09"
@@ -39,7 +40,7 @@ source('R/utils.R')
 # download price data for "my_ticker"
 raw_data <- BatchGetSymbols(tickers,
                             first.date = first_date,
-                            last.date = last_date,
+                            last.date = last_date_BGS,
                             thresh.bad.data = 0.5)
 
 
@@ -59,11 +60,12 @@ prices <- as.xts(x = subset(prices, select= -ref.date),
 prices$`ETH-USD` <- rbind(hist_data_eth[is.na(prices$`ETH-USD`)], prices$`ETH-USD`[!is.na(prices$`ETH-USD`)])
 
 prices <- na.omit(prices)
-stopifnot(index(head(prices, 1)) == "2015-10-01")
-stopifnot(index(tail(prices, 1)) == "2021-12-31")
+stopifnot(index(head(prices, 1)) == as.Date(first_date))
+stopifnot(index(tail(prices, 1)) >= as.Date(last_date))
+prices <- prices[paste0("/",last_date)]
 
 # Create dataframe containing discrete daily returns
-prices_rets <- discrete_returns(prices) %>%
+prices_rets <- prices2returns(prices) %>%
   na.omit()
 
 prices_logrets <- price2logret(prices) %>%
@@ -92,5 +94,3 @@ write_rds(prices_rets_test, 'data/ret_test.rds')
 write_rds(prices_logrets, 'data/logret.rds')
 write_rds(prices_logrets_training, 'data/logret_training.rds')
 write_rds(prices_logrets_test, 'data/logret_test.rds')
-write_rds(index(prices_rets_test), 'data/dates_test')
-# write_rds(tickers, 'data/tickers.rds')
