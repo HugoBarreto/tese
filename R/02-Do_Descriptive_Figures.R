@@ -136,6 +136,12 @@ grid.arrange(grobs=logrets_plots, ncol=3)
 dev.off()
 
 
+##### ARMA(1,1) plot #####
+
+arma_ex <- ugarchpath(ugarchspec(variance.model=list(garchOrder = c(0,0)),
+                                 mean.model = list(armaOrder = c(1,1)),
+                                 fixed.pars = list(mu = 0, omega=1, ar1 = 0.5, ma1 = 0.8)),
+                      n.sim = 1000, rseed = 42)
 
 ##### Autocorrelation plot #####
 
@@ -148,12 +154,43 @@ custom_ggAcf <- function(data){
 
 ## Acf log-returns
 
+
+stoch_series <- tibble(SWN= fitted(ugarchpath(ugarchspec(variance.model=list(garchOrder = c(0,0)),
+                                                   mean.model = list(armaOrder = c(0,0)),
+                                                   fixed.pars = list(mu = 0, omega=1)),
+                                        n.sim = 1000, rseed = 42))[,1],
+                       MA= fitted(ugarchpath(ugarchspec(variance.model=list(garchOrder = c(0,0)),
+                                                   mean.model = list(armaOrder = c(0,1)),
+                                                   fixed.pars = list(mu = 0, omega=1, ma1 = 0.3)),
+                                        n.sim = 1000, rseed = 42))[,1],
+                       AR= fitted(ugarchpath(ugarchspec(variance.model=list(garchOrder = c(0,0)),
+                                                   mean.model = list(armaOrder = c(1,0)),
+                                                   fixed.pars = list(mu = 0, omega=1, ar1 = 0.5)),
+                                        n.sim = 1000, rseed = 42))[,1],
+                       ARMA= fitted(arma_ex)[,1]) %>% as.xts(order.by=as.Date(Sys.Date():(Sys.Date()+999)))
+
+acf_example_plot <- lapply(stoch_series, function(x) custom_ggAcf(x))
+
+pdf("figs/ACFexample.pdf")
+grid.arrange(grobs=acf_example_plot, ncol=2)
+dev.off()
+
+## Acf log-returns
+
 acf_plot <- lapply(logret_training, function(x) custom_ggAcf(x))
 
 pdf("figs/ACF.pdf")
 grid.arrange(grobs=acf_plot, ncol=3)
 dev.off()
 
+
+## Acf Abs returns
+
+acf_abs_plot <- lapply(logret_training, function(x) custom_ggAcf(abs(x)))
+
+pdf("figs/ACFabs.pdf")
+grid.arrange(grobs=acf_abs_plot, ncol=3)
+dev.off()
 
 ## Acf Square returns
 
@@ -162,9 +199,6 @@ acf_square_plot <- lapply(logret_training, function(x) custom_ggAcf(x^2))
 pdf("figs/ACFsquare.pdf")
 grid.arrange(grobs=acf_square_plot, ncol=3)
 dev.off()
-
-
-
 
 
 

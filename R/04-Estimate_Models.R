@@ -5,8 +5,16 @@
 # residuals' distribution as a GPD.
 
 ## OPTIONS
-infocriteria_tex_file <- 'tabs/infocriteria.tex'
-resdist_params_tex_file <- 'tabs/residuals_dist_params.tex'
+infocriteria_tex_file <- "tabs/infocriteria.tex"
+resdist_params_tex_file <- "tabs/residuals_dist_params.tex"
+boxTest_tex_file <- "tabs/ResidBoxTest.tex"
+residualsStats_tex_file <- "tabs/residualsStats_NormTest.tex"
+residsQQ1_pdf <- "figs/ResidsQQplot.pdf"
+residsQQ2_pdf <- "figs/ResidsQQplot2.pdf"
+spearmanRho_corrplot_pdf <- "figs/spearman_rho.pdf"
+kendallTau_corrplot_pdf <- "figs/kendall_tau.pdf"
+tailsCoeff_pdf <- "figs/tailscoeff.pdf"
+tailsCoeffDiff_pdf <- "figs/tailscoeffdiff.pdf"
 
 ## Modeling OPTIONS
 ar_lag <- c(0,1) # lag used for ar term in mean equation (0 in paper)
@@ -19,25 +27,24 @@ distribution_to_estimate <- 'norm' # distribution used in all models
 
 
 # Libraries Import
-library(tidyverse)
-library(xts)
-library(rugarch)
-library(Rsafd)
-library(copula)
 library(forecast)
-library(gridExtra)
-library(spgs)
-library(kableExtra)
-library(GGally)
+library(Rsafd)
+library(xts)
 library(FRAPO)
+library(tidyverse)
+library(rugarch)
+library(copula)
+library(gridExtra)
+library(GGally)
 library(corrplot)
+library(moments)
+library(kableExtra)
 
 # Setting WD to repo root
 dirname(rstudioapi::getActiveDocumentContext()$path) %>% setwd()
 setwd('..')
 
 source('R/garch_fcts.R')
-source('R/04-Estimate_Models.R')
 
 ## Aux Functions ------------------------------------------------------------------------------------------------------
 # Function to get models' name
@@ -105,12 +112,24 @@ make.layout_matrix <- function(n_assets){
   layout_matrix
 }
 
+# Get specific values from Box test
+get_box_test_results <- function(boxt) {
+  list(
+    statistic = boxt$statistic,
+    p.value=boxt$p.value
+  )
+}
+
 # Transform log-return to discrete return as a string (latex readable) in scientific format
-logret2perctRet <- function(.logret) {logret2price(.logret) %>% discrete_returns %>% (function(ret) paste(format(ret*100, scientific=T, digits=3), '\\%'))}
+logret2perctRet <- function(.logret) {
+  logret2ret(.logret) %>%
+  (function(ret) paste(format(ret*100, scientific=T, digits=3), '\\%'))
+}
+
 ## End Aux Functions --------------------------------------------------------------------------------------------------
 
 # Importing Data
-logret_training <- read_rds('../data/logret_training.rds')
+logret_training <- read_rds('data/logret_training.rds')
 
 ## get tickers
 tickers <- names(logret_training)
@@ -145,10 +164,6 @@ dynamic_models_fit <- tickers %>%
 ## Filter out models that did not converge
 dynamic_models_fit_c <- map(dynamic_models_fit,
                             function(asset_models_fit) Filter(function(x) x@fit$convergence==0, asset_models_fit))
-
-
-
-
 
 # Generate Info criteria Table
 ## -----------------------------------------------------------------------------
@@ -197,8 +212,110 @@ selected_dynamic_models_names <- dynamic_models_fit_c_infocriteria %>%
 selected_dynamic_models <-  lapply(dynamic_models_fit_c,
                              function(asset_models) asset_models[names(asset_models) %in% selected_dynamic_models_names])
 
-## Fit semi-parametric distribution with GPD tails on residuals.
 selected_models_residuals <- lapply(selected_dynamic_models, (function (asset) as.numeric(residuals(asset[[1]], standardize=TRUE))))
+
+## Do SWN tests for models residuals
+# define lag to be log(N) where N is lenght of data
+selected_models_residuals_tib <- as_tibble(selected_models_residuals) %>% slice(-1:-10)
+max_lag <- log(nrow(selected_models_residuals_tib)) %>% round()
+
+# do tests
+box_tests <- lapply(selected_models_residuals_tib,function(x) Box.test(x, lag = max_lag, type = "Ljung-Box", fitdf = 0))
+box_tests_abs <- lapply(selected_models_residuals_tib,function(x) Box.test(abs(x), lag = max_lag, type = "Ljung-Box", fitdf = 0))
+
+# Save results in tables
+box_test_table <- lapply(box_tests, get_box_test_results) %>% bind_rows(.id = "id") %>% column_to_rownames(var="id")
+box_test_abs_table <- lapply(box_tests_abs, get_box_test_results) %>% bind_rows(.id = "id") %>% column_to_rownames(var="id")
+
+bind_cols(box_test_table, box_test_abs_table) %>%
+  round(digits = 4) %>%
+  mutate(across(starts_with('p'), format, nsmall=4, digits=5)) %>%
+  kbl(format='latex',
+      digits = c(2,4,2,4),
+      caption = "Results of Ljung-Box for assets' log-returns and absolute log-returns.",
+      vline = "",
+      linesep = "",
+      col.names = c("Statistic","p-Value", "Statistic","p-Value"),
+      align="lcccc",
+      escape = F,
+      longtable = TRUE) %>%
+  kable_classic_2(html_font = "helvetica") %>%
+  add_header_above(c(" ", "residuals" = 2, "abs residuals" = 2), border_left = FALSE, border_right = FALSE) %>%
+  footnote(paste0("The degrees of freedom of all statistics is ", max_lag,
+                  ", which is the approx. value of log(N)."),
+           footnote_as_chunk=F,
+           threeparttable = TRUE) %>%
+  cat(., file = boxTest_tex_file)
+
+# Table with sample statistics
+norm_test <- function(data){
+  test <- shapiro.test(data)
+  tibble(stat=test$statistic, p.value=test$p.value)
+}
+
+sample_stats <- list(
+  mean=mean,
+  sd=sd,
+  skew=moments::skewness,
+  kurtosis=moments::kurtosis,
+  test=norm_test
+)
+
+selected_models_residuals_tib %>%
+  summarise(across(.fns=sample_stats)) %>%
+  unpack(cols = ends_with("test"),names_sep = ".") %>%
+  pivot_longer(everything(), names_to = c("asset",".value"), names_sep = "_") %>%
+  kbl(caption="Summary statistics and the Shapiro-Wilk test results of the dynamic models residuals.",
+      format= 'latex',
+      vline = "",
+      linesep = "",
+      col.names = c("", "mean", "sd","skew","kurt","Statistic","p-value"),
+      align="lcccr",
+      escape=F,
+      digits = 4) %>%
+  kable_classic_2(full_width = F, html_font = "helvetica") %>%
+  footnote("The first 10 values were discarded to avoid any meaningful interference of the starting values on the analysis",
+           footnote_as_chunk=F,
+           threeparttable = TRUE) %>%
+  cat(file = residualsStats_tex_file)
+
+# Q-Q plot with residuals
+custom_ggqq <- function(data, add.estdist=FALSE, ...){
+  col <- colnames(data)[1]
+  if (add.estdist){
+    qgpd <- function(p) gpd.2q(p, residuals_dist[[col]])
+
+    quantiles <- stats::ppoints(nrow(data))
+    theoretical <- qgpd(p = quantiles)
+
+    y_coords <- quantile(pull(data), probs=c(0.25, 0.75))
+    x_coords  <- qgpd(c(0.25, 0.75))
+    slope <- diff(y_coords)/diff(x_coords)
+    intercept <- y_coords[1L] - slope * x_coords[1L]
+
+    x <- range(theoretical)
+    add.estdist.data <- data_frame(x = x, y = slope * x + intercept)
+  }
+
+  ggplot(data, aes(sample=!!sym(col))) +
+    ggtitle(col) +
+    stat_qq() +
+    {if (!add.estdist) stat_qq_line()} +
+    {if (add.estdist) stat_qq(distribution = qgpd, colour="blue")} +
+    {if (add.estdist) geom_path(data=add.estdist.data, mapping=aes(x=x,y=y), inherit.aes = F, colour="blue")} +
+    xlab("") + ylab("") +
+    {if (!add.estdist) coord_cartesian(ylim=c(-6,6))} +
+    {if (add.estdist) coord_cartesian(ylim=c(-6,6), xlim=x)} +
+    theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+}
+
+qq_plot <- lapply(colnames(selected_models_residuals_tib), function(col) custom_ggqq(dplyr::select(selected_models_residuals_tib, {{col}})))
+
+pdf(residsQQ1_pdf)
+grid.arrange(grobs=qq_plot, ncol=3)
+dev.off()
+
+## Fit semi-parametric distribution with GPD tails on residuals.
 residuals_dist <- lapply(selected_models_residuals, gpd.tail, plot=F)
 
 ## assert all gpd tails converged and Raise error if convergence fail
@@ -240,6 +357,13 @@ lapply(residuals_dist, function(gpd_obj) gpd_obj[grep("par.ests|^(upper|lower).t
   cat(file = resdist_params_tex_file)
 
 
+# Q-Q plot 2
+qq_plot2 <- lapply(colnames(selected_models_residuals_tib), function(col) custom_ggqq(dplyr::select(selected_models_residuals_tib, col), add.estdist = T))
+
+pdf(residsQQ2_pdf)
+grid.arrange(grobs=qq_plot2, ncol=3)
+dev.off()
+
 # Fit Copula Model
 ## -----------------------------------------------------------------------------
 ## Transform residuals sample into Uniform sample
@@ -255,10 +379,8 @@ DENS_list <- map(t.U_hat,
 t.DENS <- DENS_list %>% as_tibble() %>% slice(-n()) %>% dplyr::select(-1)
 t.DENS[lower.tri(t.DENS)] <- NA
 
-
 n_tickers <- length(tickers)
 layout_matrix <- make.layout_matrix(n_tickers)
-
 
 pdf("pairwise_unif_sample_dist.pdf")
 par(mar=c(0,0.2,0,0))
@@ -278,12 +400,10 @@ apply(which(!!layout_matrix[-1,-n_tickers], arr.ind = T), 1,
       })
 dev.off()
 
-
-
 ## Correlations Plot - Appendix
 col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
 
-pdf("spearman_rho.pdf")
+pdf(spearmanRho_corrplot_pdf)
 U_hat %>%
   as_tibble() %>%
   cor(method="spearman") %>%
@@ -293,7 +413,7 @@ U_hat %>%
            addCoef.col = "black")
 dev.off()
 
-pdf("kendall_tau.pdf")
+pdf(kendallTau_corrplot_pdf)
 U_hat %>%
   as_tibble() %>%
   cor(method="kendall") %>%
@@ -303,7 +423,40 @@ U_hat %>%
            addCoef.col = "black")
 dev.off()
 ## Tail dependence
+tdc.u <- tdc(U_hat, method = "EmpTC", lower = FALSE)
+tdc.l <- tdc(U_hat, method = "EmpTC", lower = TRUE)
 
+empirical_tail_dependece <- tdc.u
+empirical_tail_dependece[lower.tri(empirical_tail_dependece)] <- tdc.l[lower.tri(tdc.l)]
+
+pdf(tailsCoeff_pdf)
+empirical_tail_dependece %>%
+  corrplot(method = "color",  col=col(200),
+           type = 'full', diag = F,
+           tl.col ='black', tl.srt = 45, tl.cex = 0.7,
+           cl.pos = 'n', number.cex = 0.85,
+           addCoef.col = "black",
+           mar = c(3.5, 0, 3, 0)) # Values that print a pretty plot when opened in pdf
+mtext(expression(hat(lambda)[u]), side=4, line=0, las=1)
+mtext(expression(hat(lambda)[l]), side=1, line=2)
+lines(x = c(1,9), y = c(9,1), lwd=5)
+title("Estimated tail-dependence coefficients")
+dev.off()
+
+td.diff <- tdc.u - tdc.l
+#td.diff[lower.tri(td.diff)] <- (tdc.l - tdc.u)[lower.tri(td.diff)]
+colnames(td.diff) <- rownames(td.diff) <- colnames(empirical_tail_dependece)
+
+pdf(tailsCoeffDiff_pdf)
+td.diff  %>%
+  corrplot(method = "color",  col=col(200),
+           type = 'upper', diag = F,
+           tl.col ='black', tl.srt = 45, tl.cex = 0.7,
+           cl.pos = 'n', number.cex = 0.85,
+           addCoef.col = "black",
+           mar = c(0, 0, 3, 0))
+title(expression(""~bold("Tail-dependence coefficients difference")~ (hat(bold(lambda))[u]-hat(lambda)[l])))
+dev.off()
 
 
 ## Fit Student-t Copula

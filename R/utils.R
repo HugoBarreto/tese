@@ -69,7 +69,11 @@ logret2price <- function(r, startPrice=NULL){
     if(is.null(startPrice)){
       startPrice <- rep(1, dim(r)[2])
     }
-    rbind(startPrice, t(startPrice* t(exp(1)**apply(r, 2, function(x) cumsum(x)))), deparse.level = 0)
+    rbind(startPrice,
+          # t occurs bc startPrice is multiplied col-wise
+          t(startPrice* t(exp(1)** array(apply(r, 2, cumsum),
+                                         dim = dim(r), dimnames=dimnames(r)))),
+          deparse.level = 0)
   }
 }
 
@@ -88,7 +92,7 @@ logret2ret <- function(logret){
 #' @param ret Array of returns. ret can be a column vector or a matrix
 #'
 #' @export
-logret2ret <- function(ret){
+ret2logret <- function(ret){
   log(ret+1)
 }
 

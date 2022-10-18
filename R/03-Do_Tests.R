@@ -31,7 +31,7 @@ get_box_test_results <- function(boxt) {
 ## End Aux Functions --------------------------------------------------------------------------------------------------
 
 # create directory
-if (!dir.exists(dirname(my_html_file))) dir.create(dirname(my_html_file))
+if (!dir.exists(dirname(boxTest_tex_file))) dir.create(dirname(boxTest_tex_file))
 
 # get price data
 logret_training <- read_rds('data/logret_training.rds')
@@ -66,15 +66,14 @@ bind_cols(box_test_table, box_test_abs_table) %>%
       caption = "Results of Ljung-Box for assets' log-returns and absolute log-returns.",
       vline = "",
       linesep = "",
-      col.names = c("Statistic",paste0("p-Value",footnote_marker_number(1,file_format)), "Statistic",paste0("p-Value",footnote_marker_number(1,file_format))),
+      col.names = c("Statistic","p-Value", "Statistic","p-Value"),
       align="lcccc",
       escape = F,
       longtable = TRUE) %>%
   kable_classic_2(html_font = "helvetica") %>%
   add_header_above(c(" ", "log-returns" = 2, "abs log-returns" = 2), border_left = FALSE, border_right = FALSE) %>%
   footnote(paste0("The degrees of freedom of all statistics is ", max_lag,
-                  ", the choice was made based on the fact that log(N) is approx. this value."),
-           'The p-values are rounded to the 4th decimal.',
+                  ", which is the approx. value of log(N)."),
            footnote_as_chunk=F,
            threeparttable = TRUE) %>%
   cat(., file = boxTest_tex_file)
