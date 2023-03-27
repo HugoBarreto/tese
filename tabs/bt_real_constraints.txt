@@ -1,0 +1,24 @@
+Real bt - opt 20
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ewp           1          1          0
+=======================================
+Real bt - opt 5
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ewp           1          1          0
+=======================================
+Real bt - opt 1
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ewp           1          1          0
+=======================================

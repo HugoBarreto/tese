@@ -43,8 +43,8 @@ returns2prices <- function(returns, initial_prices){
 #'
 #' @examples
 #' x <- 1:12 ; dim(x) <- c(3,4)
-#' price2logret(x)
-price2logret <- function(p){
+#' prices2logreturns(x)
+prices2logreturns <- function(p){
   diff(log(p))
 }
 
@@ -57,8 +57,8 @@ price2logret <- function(p){
 #'
 #' @examples
 #' x <- 1:12 ; dim(x) <- c(3,4)
-#' logret2price(my.price2ret(x))
-logret2price <- function(r, startPrice=NULL){
+#' logreturns2prices(my.price2ret(x))
+logreturns2prices <- function(r, startPrice=NULL){
   if(length(dim(r)) <= 1){
     if(is.null(startPrice)){
       startPrice <- 1
@@ -83,7 +83,7 @@ logret2price <- function(r, startPrice=NULL){
 #' @param logret Array of log-returns. logret can be a column vector or a matrix
 #'
 #' @export
-logret2ret <- function(logret){
+logreturns2returns <- function(logret){
   exp(logret) - 1
 }
 
@@ -92,10 +92,16 @@ logret2ret <- function(logret){
 #' @param ret Array of returns. ret can be a column vector or a matrix
 #'
 #' @export
-ret2logret <- function(ret){
+returns2logreturns <- function(ret){
   log(ret+1)
 }
 
+
+# Transform log-return to discrete return as a string (latex readable) in scientific format
+logreturns2returnsPercentage <- function(.logret, digits=3) {
+  logreturns2returns(.logret) %>%
+    (function(ret) paste(format(ret*100, scientific=T, digits=digits),'\\%'))
+}
 
 ##############################
 
@@ -137,4 +143,3 @@ split.along.dim <- function(a, d) {
 my_perc <- function(x) {
   x <- scales::percent(x, accuracy = 0.01)
 }
-

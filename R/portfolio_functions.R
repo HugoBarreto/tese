@@ -14,102 +14,124 @@ source('R/utils.R')
 
 # uniform portfolio function | Also implemented as benchmark
 ewp <- function(dataset, ...) {
-  d <- ncol(dataset[[1]])
-  return(rep(1/d, d))
+  prices <- dataset[["prices"]]
+  investable.assets <- attr(prices, "investable.assets")
+  alternative.assets <- attr(prices, "alternative.assets")
+
+  investable.index <- which(colnames(prices) %in% investable.assets)
+  alternative.index <- which(colnames(prices) %in% alternative.assets)
+
+  w <- array(0, dim = length(c(investable.assets,alternative.assets)))
+  d <- ncol(prices[,investable.assets])
+
+  w[investable.index] <- 1/d
+  return(w)
 }
 
 
 # define Markowitz mean-variance portfolio
 Markowitz.p <- function(dataset, lambda=0.5, ...) {
-  X <- price2logret(dataset[[1]])[-1]  # compute returns
-  d <- ncol(X)
+  prices <- dataset[["prices"]]
+  investable.assets <- attr(prices, "investable.assets")
+  alternative.assets <- attr(prices, "alternative.assets")
+
+  investable.index <- which(colnames(prices) %in% investable.assets)
+  alternative.index <- which(colnames(prices) %in% alternative.assets)
+
+  w <- array(0, dim = length(c(investable.assets,alternative.assets)))
+  d <- ncol(prices[,investable.assets])
+
+  X <- prices2logreturns(prices[,investable.assets])[-1]
+
   Sigma <- cov(X)
   mu <- colMeans(X)
 
-  if (all(mu <= 1e-8))
-    return(rep(0, d))
+  if (all(mu <= 1e-8) & lambda!=0){
+    w[alternative.index] <- 1
+    return(w/sum(w))
+  }
 
-  # onde vai o lambda?
   Dmat <- 2 * Sigma
   A.sumW <- rep(1, d)
   Amat <- cbind(A.sumW, diag(d))
   bvec <- c(1, rep(0, d))
-  dvec <- 0.5 * mu
+  dvec <- lambda * mu
   res <- solve.QP(Dmat = Dmat, dvec = dvec, Amat = Amat, bvec = bvec, meq = 1)
-  w <- res$solution
+  w[investable.index] <- res$solution
+  w[which(abs(w) < 1e-12)] <- 0
   return(w/sum(w))
 }
 
 
 max.sharpe.ratio.p <- function(dataset, ...) {
-  log_returns <- price2logret(dataset[[1]])[-1]
-  d <- ncol(log_returns)
-  Sigma <- cov(log_returns)
-  mu <- colMeans(log_returns)
+  prices <- dataset[["prices"]]
+  investable.assets <- attr(prices, "investable.assets")
+  alternative.assets <- attr(prices, "alternative.assets")
 
-  if (all(mu <= 1e-8))
-    return(rep(0, d))
+  investable.index <- which(colnames(prices) %in% investable.assets)
+  alternative.index <- which(colnames(prices) %in% alternative.assets)
+
+  w <- array(0, dim = length(c(investable.assets,alternative.assets)))
+  d <- ncol(prices[,investable.assets])
+
+  X <- prices2logreturns(prices[,investable.assets])[-1]
+
+  Sigma <- cov(X)
+  mu <- colMeans(X)
+
+  if (all(mu <= 1e-8)){
+    w[alternative.index] <- 1
+    return(w/sum(w))
+  }
 
   Dmat <- 2 * Sigma
   Amat <- cbind(mu, diag(d))
   bvec <- c(1, rep(0, d))
   dvec <- rep(0, d)
   res <- solve.QP(Dmat = Dmat, dvec = dvec, Amat = Amat, bvec = bvec, meq = 1)
-  w <- res$solution
+  w[investable.index] <- res$solution
   return(w/sum(w))
 }
 
 # define GMVP (with heuristic not to allow shorting)
 gmvp <- function(dataset, ...) {
-  X <- price2logret(dataset[[1]])[-1]  # compute returns
-  Sigma <- cov(X)  # compute SCM
-  # design GMVP
-  w <- solve(Sigma, rep(1, nrow(Sigma)))
-  w <- abs(w)/sum(abs(w))
-  return(w)
+  return(Markowitz.p(dataset, lambda = 0, ...))
 }
 
-
-
+# Risk Parity Portfolio - Vanilla
 rpp.vanilla <- function(dataset, ...){
-  X <- price2logret(dataset[[1]])[-1]  # compute returns
+  prices <- dataset[["prices"]]
+  investable.assets <- attr(prices, "investable.assets")
+  alternative.assets <- attr(prices, "alternative.assets")
+
+  investable.index <- which(colnames(prices) %in% investable.assets)
+  alternative.index <- which(colnames(prices) %in% alternative.assets)
+
+  w <- array(0, dim = length(c(investable.assets,alternative.assets)))
+  d <- ncol(prices[,investable.assets])
+
+  X <- prices2logreturns(prices[,investable.assets])[-1]
+
   Sigma <- cov(X)
-  w <- riskParityPortfolio(Sigma)$w
-  w <- as.vector(w)
+  w[investable.index] <- riskParityPortfolio(Sigma)$w
   return(w/sum(w))
 }
 
+# Risk Parity Portfolio - Naive
 rpp.naive <- function(dataset, ...){
-  X <- price2logret(dataset[[1]])[-1]  # compute returns
+  prices <- dataset[["prices"]]
+  investable.assets <- attr(prices, "investable.assets")
+  alternative.assets <- attr(prices, "alternative.assets")
+
+  investable.index <- which(colnames(prices) %in% investable.assets)
+  alternative.index <- which(colnames(prices) %in% alternative.assets)
+
+  w <- array(0, dim = length(c(investable.assets,alternative.assets)))
+  d <- ncol(prices[,investable.assets])
+
+  X <- prices2logreturns(prices[,investable.assets])[-1]
+
   Sigma <- cov(X)
-  w <- riskParityPortfolio(Sigma, formulation="diag")$w
-  w <- as.vector(w)
+  w[investable.index] <- riskParityPortfolio(Sigma, formulation="diag")$w
   return(w/sum(w))
-}
-
-####################################################################
-
-IVP_portfolio_fun <- function(data, ...) {
-  X <- diff(log(dataset[[1]]))[-1]
-  sigma <- sqrt(diag(cov(X)))
-  w <- 1/sigma
-  w <- w/sum(w)
-
-  leverage <- parent.frame(n = 1)$leverage
-  if (is.null(leverage) || is.infinite(leverage))
-    return(w)
-  else
-    return(w * leverage)
-}
-
-
-# define quintile portfolio
-quintile.p <- function(dataset, ...) {
-  X <- price2logret(dataset[[1]])[-1]  # compute returns
-  N <- ncol(X)
-  # design quintile portfolio
-  ranking <- sort(colMeans(X), decreasing = TRUE, index.return = TRUE)$ix
-  w <- rep(0, N)
-  w[ranking[1:round(N/5)]] <- 1/round(N/5)
-  return(w)
 }

@@ -1,0 +1,32 @@
+Training bt - opt 20
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ew            1          1          0
+=======================================
+Training bt - opt 5
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ew            1          1          0
+=======================================
+Training bt - opt 1
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ew            1          1          0
+=======================================
+Test bt - opt 1
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ew            1          1          0
+=======================================

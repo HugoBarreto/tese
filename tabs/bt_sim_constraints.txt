@@ -1,0 +1,48 @@
+
+> cat("Sim bt - opt 20\n")
+Sim bt - opt 20
+
+> check_constraints(bt_sim_20)
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ew            1          1          0
+
+> cat("=======================================\n")
+=======================================
+
+> sink()
+
+> cat("Sim bt - opt 5\n")
+Sim bt - opt 5
+
+> check_constraints(bt_sim_5)
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ew            1          1          0
+
+> cat("=======================================\n")
+=======================================
+
+> sink()
+
+> cat("Sim bt - opt 1\n")
+Sim bt - opt 1
+
+> check_constraints(bt_sim_1)
+    avgLeverage FullAlloc? Shortsell?
+msr           1          1          0
+gmv           1          1          0
+rpn           1          1          0
+rpv           1          1          0
+ew            1          1          0
+
+> cat("=======================================\n")
+=======================================
+
+> sink()

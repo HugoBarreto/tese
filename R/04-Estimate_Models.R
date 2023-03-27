@@ -6,21 +6,24 @@
 
 ## OPTIONS
 infocriteria_tex_file <- "tabs/infocriteria.tex"
+residuals_ACF <- "figs/ACFResid.pdf"
+residuals_abs_ACF <- "figs/ACFabsResid.pdf"
 resdist_params_tex_file <- "tabs/residuals_dist_params.tex"
 boxTest_tex_file <- "tabs/ResidBoxTest.tex"
 residualsStats_tex_file <- "tabs/residualsStats_NormTest.tex"
 residsQQ1_pdf <- "figs/ResidsQQplot.pdf"
 residsQQ2_pdf <- "figs/ResidsQQplot2.pdf"
+pairwise_unif_dist <- "figs/pairwise_unif_sample_dist.pdf"
 spearmanRho_corrplot_pdf <- "figs/spearman_rho.pdf"
 kendallTau_corrplot_pdf <- "figs/kendall_tau.pdf"
 tailsCoeff_pdf <- "figs/tailscoeff.pdf"
 tailsCoeffDiff_pdf <- "figs/tailscoeffdiff.pdf"
 
 ## Modeling OPTIONS
-ar_lag <- c(0,1) # lag used for ar term in mean equation (0 in paper)
-ma_lag <- c(0,1) # lag used for ma term in mean equation (0 in paper)
-arch_lag <- c(0,1) # lag in arch effect (1 in paper)
-garch_lag <- c(0,1) # lag in garch effect (1 in paper)
+ar_lag <- c(0,1,2) # lag used for ar term in mean equation (0 in paper)
+ma_lag <- c(0,1,2) # lag used for ma term in mean equation (0 in paper)
+arch_lag <- c(0,1,2) # lag in arch effect (1 in paper)
+garch_lag <- c(0,1,2) # lag in garch effect (1 in paper)
 garch_model <- c('sGARCH','gjrGARCH') # see rugarch manual for more
 distribution_to_estimate <- 'norm' # distribution used in all models
 ## END OPTIONS
@@ -44,6 +47,7 @@ library(kableExtra)
 dirname(rstudioapi::getActiveDocumentContext()$path) %>% setwd()
 setwd('..')
 
+source('R/utils.R')
 source('R/garch_fcts.R')
 
 ## Aux Functions ------------------------------------------------------------------------------------------------------
@@ -120,10 +124,14 @@ get_box_test_results <- function(boxt) {
   )
 }
 
-# Transform log-return to discrete return as a string (latex readable) in scientific format
-logret2perctRet <- function(.logret) {
-  logret2ret(.logret) %>%
-  (function(ret) paste(format(ret*100, scientific=T, digits=3), '\\%'))
+# Custom ACF
+custom_ggAcf <- function(data,...){
+  args <- list(...)
+  title <- if(is.null(args$title)) dimnames(data)[[2]] else args$title
+  ggAcf(data) +
+    ggtitle(title) +
+    xlab("") + ylab("") + #ylim(c(-1,1)) +
+    theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
 }
 
 ## End Aux Functions --------------------------------------------------------------------------------------------------
@@ -147,9 +155,7 @@ dynamic_models_to_estimate <- expand_grid(ticker = tickers,
                        distribution_to_estimate) %>%
   filter(ar_lag!=0 | ma_lag!=0 | arch_lag!=0 | garch_lag!=0) %>%
   # All models considered is heteroscedastic
-  filter(arch_lag > 0 | garch_lag > 0) %>%
-  # Exclude ARMA models for BTC, ETH and GLD
-  filter(!(ticker %in% c("BTC-USD","ETH-USD","GLD") & (ar_lag > 0 | ma_lag > 0)))
+  filter(arch_lag > 0 | garch_lag > 0)
 
 ## Fit dynamic models
 dynamic_models_fit <- tickers %>%
@@ -179,12 +185,12 @@ dynamic_models_fit_c_infocriteria <-  dynamic_models_fit_c %>%
 ## Show Models on table separated by asset
 row_groups <- lengths(dynamic_models_fit_c)
 ## Show only top 5 models
-row_groups[] <- 5
+row_groups[] <- 3
 
 dynamic_models_fit_c_infocriteria %>%
   bind_rows(.id="asset") %>%
   group_by(asset) %>%
-  slice_head(n=5) %>%
+  slice_head(n=3) %>%
   ungroup() %>%
   dplyr::select(!(asset)) %>%
   kbl(caption="Information Criteria of models fit",
@@ -213,6 +219,20 @@ selected_dynamic_models <-  lapply(dynamic_models_fit_c,
                              function(asset_models) asset_models[names(asset_models) %in% selected_dynamic_models_names])
 
 selected_models_residuals <- lapply(selected_dynamic_models, (function (asset) as.numeric(residuals(asset[[1]], standardize=TRUE))))
+
+# ACF Plots
+acf_plot <- lapply(names(selected_models_residuals), function(asset)
+  custom_ggAcf(selected_models_residuals[[asset]], title=asset))
+acf_abs_plot <- lapply(names(selected_models_residuals), function(asset)
+  custom_ggAcf(abs(selected_models_residuals[[asset]]), title=asset))
+
+pdf(residuals_ACF)
+grid.arrange(grobs=acf_plot, ncol=3)
+dev.off()
+
+pdf(residuals_abs_ACF)
+grid.arrange(grobs=acf_abs_plot, ncol=3)
+dev.off()
 
 ## Do SWN tests for models residuals
 # define lag to be log(N) where N is lenght of data
@@ -337,12 +357,12 @@ lapply(residuals_dist, function(gpd_obj) gpd_obj[grep("par.ests|^(upper|lower).t
   lapply(function(gpd_info){
     append(gpd_info, list(
       upper.support=(if(gpd_info[['upper.xi']] >= 0) "\\infty" else
-        (((-gpd_info[['upper.lambda']]/gpd_info[['upper.xi']]) + gpd_info[['upper.thresh']]) %>% logret2perctRet)),
+        (((-gpd_info[['upper.lambda']]/gpd_info[['upper.xi']]) + gpd_info[['upper.thresh']]) %>% logreturns2returnsPercentage)),
       lower.support=(if(gpd_info[['lower.xi']] >= 0) "-\\infty" else
-        (((gpd_info[['lower.lambda']]/gpd_info[['lower.xi']]) - gpd_info[['lower.thresh']]) %>% logret2perctRet))))}) %>%
+        (((gpd_info[['lower.lambda']]/gpd_info[['lower.xi']]) - gpd_info[['lower.thresh']]) %>% logreturns2returnsPercentage))))}) %>%
   bind_rows(.id = 'asset') %>%
   relocate(starts_with('lower'), .after=asset) %>%
-  kbl(format='html',
+  kbl(format='latex',
       digits = 3,
       caption = "Residuals' GPD fit parameters.",
       vline = "",
@@ -382,7 +402,7 @@ t.DENS[lower.tri(t.DENS)] <- NA
 n_tickers <- length(tickers)
 layout_matrix <- make.layout_matrix(n_tickers)
 
-pdf("pairwise_unif_sample_dist.pdf")
+pdf(pairwise_unif_dist)
 par(mar=c(0,0.2,0,0))
 layout(layout_matrix,
        widths = c(rep.int(1, ncol(layout_matrix)-1), 0.3),

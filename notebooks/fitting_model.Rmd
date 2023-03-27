@@ -24,6 +24,7 @@ library(kableExtra)
 library(GGally)
 library(FRAPO)
 library(corrplot)
+library(moments)
 ```
 
 ```{r}
@@ -140,6 +141,7 @@ t.models_fit_c_infocriteria <-  t.models_fit_c %>%
       arrange(Bayes, Akaike)
     })  
 
+
 ## Show only top 5 models
 row_groups[] <- 5
 t.models_fit_c_infocriteria %>% 
@@ -154,10 +156,35 @@ t.models_fit_c_infocriteria %>%
       linesep = "",
       col.names = c("Model","AIC","BIC"),
       align="lcc",
-      digits = 4) %>%
+      digits = 4,
+      longtable = TRUE) %>%
   kable_classic_2(full_width = F, html_font = "helvetica") %>%
   pack_rows(index=row_groups)
+  
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Residuals Model
 
@@ -177,6 +204,164 @@ t.selected_models_residuals <- lapply(t.selected_models, (function (asset) as.nu
 t.residuals_dist <- lapply(t.selected_models_residuals, gpd.tail, plot=F)
 ```
 
+
+
+
+
+```{r}
+# Teste de SWN para os resíduos dos modelos
+
+get_box_test_results <- function(boxt) {
+  list(
+    statistic = boxt$statistic,
+    p.value=boxt$p.value
+  )
+}
+
+# define lag to be log(N) where N is lenght of data
+t.selected_models_residuals_tib <- as_tibble(t.selected_models_residuals) %>% slice(-1:-10)
+max_lag <- log(nrow(t.selected_models_residuals_tib)) %>% round()
+
+# do tests
+box_tests <- lapply(t.selected_models_residuals_tib,function(x) Box.test(x, lag = max_lag, type = "Ljung-Box", fitdf = 0))
+box_tests_abs <- lapply(t.selected_models_residuals_tib,function(x) Box.test(abs(x), lag = max_lag, type = "Ljung-Box", fitdf = 0))
+
+# Save results in tables
+box_test_table <- lapply(box_tests, get_box_test_results) %>% bind_rows(.id = "id") %>% column_to_rownames(var="id")
+box_test_abs_table <- lapply(box_tests_abs, get_box_test_results) %>% bind_rows(.id = "id") %>% column_to_rownames(var="id")
+
+
+file_format <- 'html'
+boxTest_tex_file <- '../tabs/ResidBoxTest.tex'
+
+bind_cols(box_test_table, box_test_abs_table) %>%
+  round(digits = 4) %>%
+  mutate(across(starts_with('p'), format, nsmall=4, digits=5)) %>%
+  kbl(format=file_format,
+      digits = c(2,4,2,4),
+      caption = "Results of Ljung-Box for assets' log-returns and absolute log-returns.",
+      vline = "",
+      linesep = "",
+      col.names = c("Statistic","p-Value", "Statistic","p-Value"),
+      align="lcccc",
+      escape = F,
+      longtable = TRUE) %>%
+  kable_classic_2(html_font = "helvetica") %>%
+  add_header_above(c(" ", "residuals" = 2, "abs residuals" = 2), border_left = FALSE, border_right = FALSE) %>%
+  footnote(paste0("The degrees of freedom of all statistics is ", max_lag,
+                  ", which is the approx. value of log(N)."),
+           footnote_as_chunk=F,
+           threeparttable = TRUE)# %>%
+ # cat(., file = boxTest_tex_file)
+```
+
+```{r}
+# Table with sample statistics
+norm_test <- function(data){
+  test <- shapiro.test(data)
+  tibble(stat=test$statistic, p.value=test$p.value)
+}
+
+sample_stats <- list(
+  mean=mean,
+  sd=sd,
+  skew=moments::skewness,
+  kurtosis=moments::kurtosis,
+  test=norm_test
+)
+
+
+t.selected_models_residuals_tib %>%
+  summarise(across(.fns=sample_stats)) %>%
+  unpack(cols = ends_with("test"),names_sep = ".") %>% 
+  pivot_longer(everything(), names_to = c("asset",".value"), names_sep = "_") %>% 
+  kbl(caption="Summary statistics and the Shapiro-Wilk test results of the dynamic models residuals.",
+      format= "html",
+      vline = "",
+      linesep = "",
+      col.names = c("", "mean", "sd","skew","kurt","Statistic","p-value"),
+      align="lcccr",
+      escape=F,
+      digits = 4) %>%
+  kable_classic_2(full_width = F, html_font = "helvetica") %>% 
+  footnote("The first 10 values were discarded to avoid any meaningful interference of the starting values on the analysis",
+           footnote_as_chunk=F,
+           threeparttable = TRUE) #%>% 
+  #cat(file = "../tabs/residualsStats_NormTest.tex")
+  
+```
+
+
+```{r}
+# Q-Q plot with residuals
+custom_ggqq <- function(data, add.estdist=FALSE, ...){
+  col <- colnames(data)[1]
+  if (add.estdist){
+    qgpd <- function(p) gpd.2q(p, t.residuals_dist[[col]])
+    
+    quantiles <- stats::ppoints(nrow(data))
+    theoretical <- qgpd(p = quantiles)
+    
+    y_coords <- quantile(pull(data), probs=c(0.25, 0.75)) 
+    x_coords  <- qgpd(c(0.25, 0.75))
+    slope <- diff(y_coords)/diff(x_coords)
+    intercept <- y_coords[1L] - slope * x_coords[1L]
+    
+    x <- range(theoretical)
+    add.estdist.data <- data_frame(x = x, y = slope * x + intercept)
+  } 
+  
+  ggplot(data, aes(sample=!!sym(col))) +
+    ggtitle(col) +
+    stat_qq() + 
+    {if (!add.estdist) stat_qq_line()} +
+    {if (add.estdist) stat_qq(distribution = qgpd, colour="blue")} +
+    {if (add.estdist) geom_path(data=add.estdist.data, mapping=aes(x=x,y=y), inherit.aes = F, colour="blue")} +
+    xlab("") + ylab("") + 
+    {if (!add.estdist) coord_cartesian(ylim=c(-6,6))} +
+    {if (add.estdist) coord_cartesian(ylim=c(-6,6), xlim=x)} +
+    theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+}
+
+qq_plot <- lapply(colnames(t.selected_models_residuals_tib), function(col) custom_ggqq(dplyr::select(t.selected_models_residuals_tib, {{col}})))
+
+pdf("../figs/ResidsQQplot.pdf")
+grid.arrange(grobs=qq_plot, ncol=3)
+dev.off()
+
+```
+
+```{r}
+# custom_ggAcf <- function(data){
+#   ggAcf(data) +
+#     ggtitle(dimnames(data)[[2]]) +
+#     xlab("") + ylab("") + #ylim(c(-1,1)) +
+#     theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+# }
+# 
+# ## Acf log-returns
+# 
+# acf_plot <- t.selected_models_residuals_tib %>% 
+#   as.xts(order.by=as.Date(Sys.Date():(Sys.Date()+nrow(t.selected_models_residuals_tib)-1))) %>% 
+#   lapply(function(x) custom_ggAcf(x))
+# 
+# pdf("../figs/ACFresid.pdf")
+# grid.arrange(grobs=acf_plot, ncol=3)
+# dev.off()
+# 
+# 
+# ## Acf Abs returns
+# 
+# acf_abs_plot <- t.selected_models_residuals_tib %>% 
+#   as.xts(order.by=as.Date(Sys.Date():(Sys.Date()+nrow(t.selected_models_residuals_tib)-1))) %>%
+#   lapply(function(x) custom_ggAcf(abs(x)))
+# 
+# pdf("../figs/ACFabsResid.pdf")
+# grid.arrange(grobs=acf_abs_plot, ncol=3)
+# dev.off()
+```
+
+
 ```{r}
 # assert all gpd tails converged and Raise error if convergence fail
 sapply(t.residuals_dist, function(asset_gpd) c(asset_gpd['upper.converged'], asset_gpd['lower.converged'])) %>% 
@@ -189,7 +374,7 @@ sapply(t.residuals_dist, function(asset_gpd) c(asset_gpd['upper.converged'], ass
 
 
 ```{r}
-logret2perctRet <- function(.logret) {logret2price(.logret) %>% discrete_returns %>% (function(ret) paste(format(ret*100, scientific=T, digits=3), '\\%'))}
+logreturns2returnsPercentage <- function(.logret) {logreturns2prices(.logret) %>% discrete_returns %>% (function(ret) paste(format(ret*100, scientific=T, digits=3), '\\%'))}
 
 lapply(t.residuals_dist, function(gpd_obj) gpd_obj[grep("par.ests|^(upper|lower).thresh",names(gpd_obj))]) %>%
   lapply(function(gpd_info) append(gpd_info, c(upper=gpd_info[['upper.par.ests']]['lambda'], 
@@ -200,9 +385,9 @@ lapply(t.residuals_dist, function(gpd_obj) gpd_obj[grep("par.ests|^(upper|lower)
   lapply(function(gpd_info){
     append(gpd_info, list(
       upper.support=(if(gpd_info[['upper.xi']] >= 0) "\\infty" else 
-        (((-gpd_info[['upper.lambda']]/gpd_info[['upper.xi']]) + gpd_info[['upper.thresh']]) %>% logret2perctRet)),
+        (((-gpd_info[['upper.lambda']]/gpd_info[['upper.xi']]) + gpd_info[['upper.thresh']]) %>% logreturns2returnsPercentage)),
       lower.support=(if(gpd_info[['lower.xi']] >= 0) "-\\infty" else 
-        (((gpd_info[['lower.lambda']]/gpd_info[['lower.xi']]) - gpd_info[['lower.thresh']]) %>% logret2perctRet))))}) %>% 
+        (((gpd_info[['lower.lambda']]/gpd_info[['lower.xi']]) - gpd_info[['lower.thresh']]) %>% logreturns2returnsPercentage))))}) %>% 
   bind_rows(.id = 'asset') %>% 
   relocate(starts_with('lower'), .after=asset) %>%
   kbl(format='html',
@@ -221,6 +406,133 @@ lapply(t.residuals_dist, function(gpd_obj) gpd_obj[grep("par.ests|^(upper|lower)
 ```
 
 
+
+```{r}
+# Q-Q plot 2
+# custom_ggqq <- function(data, add.estdist=FALSE){
+#   col <- colnames(data)[1]
+#   if (add.estdist){
+#     qgpd <- function(p) gpd.2q(p, t.residuals_dist[[col]])
+#     
+#     quantiles <- stats::ppoints(nrow(data))
+#     theoretical <- qgpd(p = quantiles)
+#     
+#     y_coords <- quantile(pull(data), probs=c(0.25, 0.75)) 
+#     x_coords  <- qgpd(c(0.25, 0.75))
+#     slope <- diff(y_coords)/diff(x_coords)
+#     intercept <- y_coords[1L] - slope * x_coords[1L]
+#     
+#     x <- range(theoretical)
+#     add.estdist.data <- data_frame(x = x, y = slope * x + intercept)
+#   } 
+#   
+#   ggplot(data, aes(sample=!!sym(col))) +
+#     ggtitle(col) +
+#     stat_qq() + 
+#     {if (!add.estdist) stat_qq_line()} +
+#     {if (add.estdist) stat_qq(distribution = qgpd, colour="blue")} +
+#     {if (add.estdist) geom_path(data=add.estdist.data, mapping=aes(x=x,y=y), inherit.aes = F, colour="blue")} +
+#     xlab("") + ylab("") + 
+#     {if (!add.estdist) coord_cartesian(ylim=c(-6,6))} +
+#     {if (add.estdist) coord_cartesian(ylim=c(-6,6), xlim=c(-6,6))} +
+#     theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+# }
+
+# qq_plot <- lapply(colnames(t.selected_models_residuals_tib), function(col) custom_ggqq(dplyr::select(t.selected_models_residuals_tib, col)))
+# 
+# pdf("../figs/ResidsQQplot.pdf")
+# grid.arrange(grobs=qq_plot, ncol=3)
+# dev.off()
+
+#column <- "AGG"
+
+# qgpd <- function(p) gpd.2q(p, t.residuals_dist[[column]])
+
+# quantiles <- stats::ppoints(nrow(t.selected_models_residuals_tib))
+# theoretical <- qgpd(p = quantiles)
+#     
+# y_coords <- quantile(pull(t.selected_models_residuals_tib[column]), probs=c(0.25, 0.75)) 
+# x_coords  <- qgpd(c(0.25, 0.75))
+# slope <- diff(y_coords)/diff(x_coords)
+# intercept <- y_coords[1L] - slope * x_coords[1L]
+#     
+# x <- range(theoretical)
+# add.estdist.data <- data_frame(x = x, y = slope * x + intercept)
+
+# t.selected_models_residuals_tib %>% 
+#   dplyr::select(all_of(column)) %>%
+#   custom_gg2qq(add.estdist = T)
+  
+  # ggplot(aes(sample=!!sym(column))) +
+  #   ggtitle(column) +
+  #   stat_qq() + #stat_qq_line() +
+  #   stat_qq(distribution = qgpd, colour="blue") +
+  #   geom_path(data=add.estdist.data, mapping=aes(x=x,y=y), inherit.aes = F, colour="blue") +
+  #   xlab("") + ylab("") + coord_cartesian(ylim=c(-6,6), xlim=c(-6,6)) + #ylim(c(-6,6)) + xlim(c(-6,6)) +
+  #   theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+column <- "VTI"
+
+qgpd <- function(p) gpd.2q(p, t.residuals_dist[[column]])
+lambda <- t.residuals_dist[[column]]$upper.par.ests['lambda']
+quantiles <- seq(from=0.9, to=0.9999, length.out=500)
+
+probs <- c(0.9,0.99)
+y_coords <- qgpd(probs)
+x_coords  <- qexp(probs, rate = 1/lambda)
+slope <- diff(y_coords)/diff(x_coords)
+intercept <- y_coords[1L] - slope * x_coords[1L]
+
+
+tibble("{column}" := qgpd(quantiles)) %>%
+  ggplot(aes(sample=!!sym(column))) +
+    ggtitle(paste(column,"vs. exp")) +
+    stat_qq(quantiles=quantiles, distribution = qexp, dparams = list(rate=1/lambda)) + geom_abline(slope = slope, intercept = intercept) +
+    xlab("") + ylab("") + #coord_cartesian(ylim=c(0,4), xlim=c(0,4)) +
+    theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+x_coords  <- qnorm(probs)
+slope <- diff(y_coords)/diff(x_coords)
+intercept <- y_coords[1L] - slope * x_coords[1L]
+
+tibble("{column}" := qgpd(quantiles)) %>%
+  ggplot(aes(sample=!!sym(column))) +
+    ggtitle(paste(column,"vs. norm")) +
+    stat_qq(quantiles=quantiles) + geom_abline(slope = slope, intercept = intercept) +
+    xlab("") + ylab("") + #coord_cartesian(ylim=c(0,4), xlim=c(0,4)) +
+    theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+```
+
+```{r}
+# Q-Q plot 2
+qq_plot2 <- lapply(colnames(t.selected_models_residuals_tib), function(col) custom_ggqq(dplyr::select(t.selected_models_residuals_tib, col), add.estdist = T))
+
+pdf("../figs/ResidsQQplot2.pdf")
+grid.arrange(grobs=qq_plot2, ncol=3)
+dev.off()
+
+grid.arrange(grobs=qq_plot2, ncol=3)
+
+
+column <- "GLD"
+t.selected_models_residuals_tib %>%
+  dplyr::select(all_of(column)) %>%
+  custom_ggqq(add.estdist = T)
+```
+
+
+
+
+
+
+
+
+
+
+
 # Copula Model
 
 ```{r}
@@ -229,22 +541,6 @@ U_hat <- t(matrix(unlist(U_hat.T, use.names = F), nrow = length(U_hat.T), byrow 
 # Just for reference
 dimnames(U_hat) <- list(NULL, names(t.selected_models_residuals))
 ```
-
-
-```{r}
-#### Staging - custom.filled.contour está definido no prox. bloco
-layout_matrix <- matrix(1,(length(tickers)-1),(length(tickers)-1))
-layout_matrix[lower.tri(layout_matrix)] <- 0
-layout_matrix[layout_matrix != 0] <- 1:length(layout_matrix[layout_matrix != 0])
-
-t.U_hat <- as_tibble(U_hat) %>% as.list()
-DENS_list <- map(t.U_hat, 
-                 function(.col1, .data) map(.data, kde2d, .col1),
-                 t.U_hat)
-t.DENS <- DENS_list %>% as_tibble() %>% slice(-n()) %>% dplyr::select(-1)
-t.DENS[lower.tri(t.DENS)] <- NA
-```
-
 
 ```{r}
 custom.filled.contour <- function(x = seq(0, 1, length.out = nrow(z)),
@@ -298,7 +594,8 @@ n_tickers <- length(tickers)
 # layout.show(max(.layout_matrix))
 
 
-#pdf("heat.pdf")
+#pdf("../figs/heat.pdf")
+png('../figs/heat.png',type="cairo")
 par(mar=c(0,0.2,0,0))
 layout(.layout_matrix, 
        widths = c(rep.int(1, ncol(.layout_matrix)-1), 0.3), 
@@ -307,23 +604,34 @@ walk(tickers[-1], function(ticker) text_plot(ticker, cex=1, font=2))
 par(mar=c(0.2,0,0,0))
 walk(tickers[-n_tickers], function(ticker) text_plot(ticker, cex=1, font=2, srt=270))
 par(mar=c(0.2,0.2,0,0))
-apply(which(!!.layout_matrix[-1,-n_tickers], arr.ind = T), 1, 
+apply(which(!(!.layout_matrix[-1,-n_tickers]), arr.ind = T), 1, 
       function(.row) {
         i <- .row[1]
         j <- .row[2]
         (function(.DENS) custom.filled.contour(.DENS$x, .DENS$y, .DENS$z))(t.DENS[[i,j]][[1]])
       paste(names(t.DENS[j])[1], names(t.DENS[[j]])[i])
       })
-#dev.off()
+dev.off()
 
+```
 
+```{r}
+DENS.tibble <- expand_grid(x=DENS_list$AGG$GLD$x, y=DENS_list$AGG$GLD$y) %>%  
+  mutate(index_x=match(x, DENS_list$AGG$GLD$x), index_y = match(y, DENS_list$AGG$GLD$y)) %>% 
+  rowwise() %>% 
+  mutate(z=DENS_list$AGG$GLD$z[index_x, index_y], .keep="unused") %>% 
+  ungroup()
+  
+ggplot(data=DENS.tibble, aes(x=x,y=y,z=z)) +
+  geom_contour_filled() +
+  theme_bw() +  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  xlab("") + ylab("") 
 ```
 
 
 
-
 ```{r}
-col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+corr_colors <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
 
 # Correlations (Appendix)
 U_hat %>% 
@@ -334,14 +642,15 @@ U_hat %>%
            tl.col ='black', tl.srt = 45, tl.cex = 0.85,
            addCoef.col = "black")
 
+pdf('../figs/kendall.pdf')
 U_hat %>% 
   as_tibble() %>%
   cor(method="kendall") %>% 
-  corrplot(method = "color",  col=col(200), 
+  corrplot(method = "color",  col=corr_colors(200), 
            type = 'upper', diag = F, order='hclust',
            tl.col ='black', tl.srt = 45, tl.cex = 0.85,
            addCoef.col = "black")
-
+dev.off()
 
 ```
 
@@ -349,12 +658,48 @@ U_hat %>%
 ```{r}
 # Tail dependence
 
-data(StockIndex)
-StockIndex %>% head()
+tdc.u <- tdc(U_hat, method = "EmpTC", lower = FALSE)
+tdc.l <- tdc(U_hat, method = "EmpTC", lower = TRUE)
 
-empirical_tail_dependece <- tdc(U_hat, method = "EmpTC")
-empirical_tail_dependece1 <- tdc(U_hat, method = "EVT")
-empirical_tail_dependece1
+empirical_tail_dependece <- tdc.u
+empirical_tail_dependece[lower.tri(empirical_tail_dependece)] <- tdc.l[lower.tri(tdc.l)]
+```
+
+```{r}
+pdf('../figs/tailscoeff.pdf')
+empirical_tail_dependece %>% 
+  corrplot(method = "color",  col=col(200),
+           type = 'full', diag = F,
+           tl.col ='black', tl.srt = 45, tl.cex = 0.7,
+           cl.pos = 'n', number.cex = 0.85,
+           addCoef.col = "black",
+           mar = c(3.5, 0, 3, 0)) # Values that print a pretty plot when opened in pdf
+mtext(expression(hat(lambda)[u]), side=4, line=0, las=1)
+mtext(expression(hat(lambda)[l]), side=1, line=2)
+lines(x = c(1,9), y = c(9,1), lwd=5)
+title("Estimated tail-dependence coefficients")
+dev.off()
+```
+
+```{r}
+td.diff <- tdc.u - tdc.l
+#td.diff[lower.tri(td.diff)] <- (tdc.l - tdc.u)[lower.tri(td.diff)]
+colnames(td.diff) <- rownames(td.diff) <- colnames(empirical_tail_dependece)
+
+pdf('../figs/tailscoeffdiff.pdf')
+td.diff  %>% 
+  corrplot(method = "color",  col=col(200), 
+           type = 'upper', diag = F,
+           tl.col ='black', tl.srt = 45, tl.cex = 0.7,
+           cl.pos = 'n', number.cex = 0.85,
+           addCoef.col = "black",
+           mar = c(0, 0, 3, 0))
+title(expression(""~bold("Tail-dependence coefficients difference")~ (hat(bold(lambda))[u]-hat(lambda)[l])))
+dev.off()
+```
+
+```{r}
+empirical_tail_dependece
 ```
 
 
@@ -362,12 +707,30 @@ empirical_tail_dependece1
 ```{r}
 fitted_copula <- fitCopula(tCopula(dim=length(tickers), dispstr = "un"), U_hat)
 
+```
+
+```{r}
 # Create Sigma Matrix table
 fitted_copula@copula %>% copula::getSigma() %>% 
   corrplot(method = "color",  col=col(200), 
            type = 'full', diag = T,
            tl.pos = 'n', cl.pos = 'n',
            addCoef.col = "black")
+```
+
+Poderia fazer alguns resultados que demonstrem o fit da Copula
+- GoF
+- Análise de tail Coeff.
+
+
+
+
+
+```{r}
+#Saving Models
+write_rds(t.selected_models, '../data/selected_dynamic_models.rds')
+write_rds(t.residuals_dist, '../data/residuals_dist.rds')
+write_rds(fitted_copula, '../data/fitted_copula.rds')
 ```
 
 

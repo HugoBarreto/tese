@@ -12,8 +12,11 @@ setwd('..')
 source('R/utils.R')
 source('R/portfolio_functions.R')
 
-constraints.file <- "tabs/bt_sim_constraints.txt"
-constraints.file.real <- "tabs/bt_real_constraints.txt"
+constraints.file <- "tabs/bt_constraints.txt"
+
+# Portfolios' performance measures for further analysis
+table_measures <- c("Sharpe ratio","max drawdown","annual return",
+                    "annual volatility","turnover","CAGR", "error")
 
 ## Aux Functions ------------------------------------------------------------------------------------------------------
 # Getter function to access specific attributes
@@ -27,14 +30,12 @@ lapply_ka <- function(obj, .f, ...){
   return(.obj)
 }
 
-# Get a list whose each element is a xts object that contains realized and
-# simulated prices, providing distinct simulated price action based on our models.
-simulate_prices <- function(sim_returns, prices) {
-  last_prices <- tail(prices,1) %>% coredata %>% drop
-  sim_returns_dates <- index(sim_returns)
-  sim_prices <- logret2price(sim_returns, last_prices)[-1,] # drop the last training price (it's on the merge)
-  result <- rbind(prices, xts(sim_prices, order.by = sim_returns_dates))
-  list("adjusted"=result)
+# Split .list names into chunks for partial processing
+split_into_chuncks <- function(.list, chunk.size=ceiling(length(.list)/10)){
+  .list.names <- names(.list)
+  len <- length(.list.names)
+  split(.list.names, f=rep(1:(len %/% chunk.size + 1), each=chunk.size,
+                     length.out=len))
 }
 
 # Check if backtests constraints were respected (shows table)
@@ -49,17 +50,26 @@ check_constraints <- function(bt){
 # Add additional performance metrics - CAGR + Geometric SR - to each bt run
 add_performances <- function(bt){
   add_performance(bt, name = "CAGR", fun = function(return, performance,...) {
+    if(is.na(performance["annual return"]) || is.null(performance["annual return"]))
+      return(NA)
     if(performance["annual return"]==0) return(0)
     PerformanceAnalytics::Return.annualized(return, scale = 252, geometric = TRUE)
   }) %>%
     add_performance(name = "Geometric SR", fun = function(return, performance,...) {
-      if(performance["Sharpe ratio"]==0) return(0)
+      if(is.na(performance["Sharpe ratio"]) || is.null(performance["Sharpe ratio"]))
+        return(NA)
+      if(performance["Sharpe ratio"]==0 ) return(0)
       PerformanceAnalytics::SharpeRatio.annualized(return, scale = 252, geometric = TRUE)
     })
 }
 
+# add to backtest, a "backtestTable" attribute | good for piping operations
+add_backtestTable_attr <- function(bt, measures=NULL){
+  attr(bt, "backtestTable") <-  backtestTable(bt, measures = measures)
+  bt
+}
 # add to each portfolio, a "analysis" attribute
-portfolio_analysis <- function(bt) {
+add_analysis_attr <- function(bt) {
   is_null_analysis <- sapply(bt, function(port) is.null(get_analysis(port)))
   if (!any(is_null_analysis)) return(bt)
 
@@ -77,9 +87,10 @@ add_analysis <- function(bt, name, fun, ...) {
 
   fun_each_portfolio <- function(bt_portfolio){
     port_analysis <- get_analysis(bt_portfolio)
+    args <- c(dots, tibble::lst(port_analysis=port_analysis))
     attr(bt_portfolio, "analysis") <- c(port_analysis,
                                         # execute a function that are unaware to dynamic dots
-                                        tibble::lst(!!name := exec(function(...) fun(bt_portfolio, ...), !!!dots)))
+                                        tibble::lst(!!name := exec(function(...) fun(bt_portfolio, ...), !!!args)))
     return(bt_portfolio)
   }
 
@@ -99,283 +110,295 @@ add_multiple_analysis <- function(bt, analysis_options) {
             CumReturns = function(.bt) add_analysis(.bt, name = name, fun = get_cumreturns, !!!args),
             stop("Option not available on multiple addition. Try adding separatly with \'add_analysis\' function"))
   }) %>%
-    reduce(function(.bt, add_analysis_fun) add_analysis_fun(.bt), .init = bt)
+  purrr::reduce(function(.bt, add_analysis_fun) add_analysis_fun(.bt), .init = bt)
 }
 
 #### Portfolio Analysis Producer Functions
 get_cumreturns <- function(port_datasets, horizon=1, ...) {
+  args <- list2(...)
+  if(!is.null(args$port_analysis)){
+    name <- if(is.null(horizon) | is.na(horizon)) "CumReturns_wealth" else paste0("CumReturns_h", sprintf("%02d", horizon))
+    if(!is.null(args$port_analysis[[name]])) return(args$port_analysis[[name]])
+  }
+
   returns <- do.call(cbind, lapply(port_datasets, function(single_bt) single_bt$return))
   # cumulative returns
-  return(na.omit(rollapply(returns+1, width = horizon, prod)) - 1)
+  return(as.xts(rollapplyr(as.zoo(returns)+1, width = horizon, prod) - 1))
+
 }
 
-
 get_VaR <- function(port_datasets, alpha=0.95, horizon=NULL, ...) {
+  args <- list2(...)
+  if(!is.null(args$port_analysis)){
+    name <- if(is.null(horizon) | is.na(horizon)) "VaR_wealth" else paste0("VaR_h", sprintf("%02d", horizon))
+    if(!is.null(args$port_analysis[[name]])) return(args$port_analysis[[name]])
+  }
+
   if(is.null(horizon) | is.na(horizon)){
     # Bind all wealth derived from simulations. Exclude first date (initial endowment of 1)
     cum_returns <- do.call(cbind, lapply(port_datasets, function(single_bt) single_bt$wealth))[-1] - 1
   }
   else {
     # Get rolling 'horizon' of days cumulative return
-    cum_returns <- get_cumreturns(port_datasets, horizon)
+    cum_returns <- get_cumreturns(port_datasets, horizon, !!!args)
   }
   # Calculate VaR for each date
+  if (length(cum_returns)[1L] == 0)
+    return(NA)
   VaR <- apply(cum_returns, 1, quantile, probs=(1-alpha), na.rm=T)
   VaR <- if(!is.matrix(VaR)) as.matrix(VaR) else t(VaR)
   xts(VaR, index(cum_returns), dimnames=list(NULL, alpha))
 }
 
-
 get_CVaR <- function(port_datasets, alpha=0.95, horizon=NULL, ...) {
+  args <- list2(...)
   if(is.null(horizon) | is.na(horizon)){
     # Bind all wealth derived from simulations. Exclude first date (initial endowment of 1)
     cum_returns <- do.call(cbind, lapply(port_datasets, function(single_bt) single_bt$wealth))[-1]
   }
   else {
     # Get rolling 'horizon' of days cumulative return
-    cum_returns <- get_cumreturns(port_datasets, horizon)
+    cum_returns <- get_cumreturns(port_datasets, horizon, !!!args)
   }
   # Get VaR for each date
-  VaR <- get_VaR(port_datasets, alpha, horizon)
+  VaR <- get_VaR(port_datasets, alpha, horizon, !!!args)
 
   # Calculate Conditional Var a.k.a. Expected Shortfall for each alpha
+  if(all(is.na(VaR)))
+    return(NA)
   cvar <- apply(VaR, 2, function(VaR, cum_returns){
     coredata(cum_returns)[cum_returns >= coredata(VaR)] <- NA
-    rowMeans(cum_returns, na.rm = T)
+    .cvar <- rowMeans(cum_returns, na.rm = T)
+    na.fill(.cvar, VaR[is.na(.cvar)])
   }, cum_returns)
+  dim(cvar) <- dim(VaR)
+  dimnames(cvar) <- dimnames(VaR)
   xts(cvar, index(cum_returns))
 }
-
 ## End Aux Functions --------------------------------------------------------------------------------------------------
+
+# Importing data
+prices_training <- read_rds('data/prices_training.rds')
+prices_test <- read_rds('data/prices_test.rds')
+MM_training <- read_rds('data/MM_training.rds')
+MM_test <- read_rds('data/MM_test.rds')
+
+tickers <- names(prices_test)
+MM.names <- names(MM_test)
+all.names <- c(tickers, MM.names)
+
+# Complete sets
+prices_training <- merge(prices_training, MM_training) %>% `colnames<-`(all.names)
+prices_test <- merge(prices_test, MM_test) %>% `colnames<-`(all.names)
+prices <- rbind(prices_training,prices_test)
+
+
+# Info used in portfolio functions
+attributes(prices_training) <- c(attributes(prices_training),
+                                 list("investable.assets"=tickers,
+                                      "alternative.assets"=MM.names))
+
+attributes(prices) <- c(attributes(prices),
+                        list("investable.assets"=tickers,
+                             "alternative.assets"=MM.names))
 
 # Backtest portfolios
 portfolios <- list("msr" = max.sharpe.ratio.p,
                    "gmv" = gmvp,
                    "rpn" = rpp.naive,
-                   "rpv" = rpp.vanilla)
+                   "rpv" = rpp.vanilla,
+                   "ew" = ewp)
 
-port_name <- c(names(portfolios), "ew")
+portfolios.names <- names(portfolios)
 
-# Importing data
-prices_training <- read_rds('data/prices_training.rds')
-prices_test <- read_rds('data/prices_test.rds')
-prices <- rbind(prices_training,prices_test)
+################
+# Objetivos:
+# - Backtest all training data and sampled windows.
 
-tickers <- names(prices)
-test_dates <- index(prices_test)
+# Define backtest dataset list for training and test data.
+bt_training.datasets <- list("complete_data"=list("prices"=prices_training))
+bt_test.datasets <- list("empirical_data"=list(
+  "prices"=prices[paste0(head(index(tail(prices_training, 252)),1),"/")]))
 
-# Use only last 252 days of trading data to optimize initial portfolio weights
-prices_training <- tail(prices_training, 252)
-prices <- prices[paste0(index(prices_training)[1],"/")] # Analyse performance on the same data period.
 
-# Get Test Prices (wrap xts in a nested list used as input in backtest function)
-realized_prices <- list("empirical_data"=list("adjusted"=prices))
+training.resample <- financialDataResample(bt_training.datasets[[1]],
+                                           N_sample = 10, T_sample = 252*2,
+                                           num_datasets = 100)
+
+bt_training.datasets <- c(bt_training.datasets,training.resample)
+
+# FAZER: resample training dataset - ampliar os backtests !!!!!!!!!!!!!!!!!!!!!!
+
+# Perform Backtest - Training data
+bt_training.20 <- portfolioBacktest(portfolios, bt_training.datasets,
+                            rebalance_every=5, optimize_every = 20) %>%
+  add_performances %>% # CAGR + Geometric SR
+  set_names(portfolios.names) %>%
+  add_backtestTable_attr(table_measures)
+
+bt_training.5 <- portfolioBacktest(portfolios, bt_training.datasets,
+                               rebalance_every=5, optimize_every = 5) %>%
+  add_performances %>%
+  set_names(portfolios.names) %>%
+  add_backtestTable_attr(table_measures)
+
+bt_training.1 <- portfolioBacktest(portfolios, bt_training.datasets,
+                               rebalance_every=1, optimize_every = 1) %>%
+  add_performances %>%
+  set_names(portfolios.names) %>%
+  add_backtestTable_attr(table_measures)
+
+write_rds(bt_training.20, 'data/backtest_training_opt20.rds')
+write_rds(bt_training.5, 'data/backtest_training_opt5.rds')
+write_rds(bt_training.1, 'data/backtest_training_opt1.rds')
+
+# Check hypothesized constraints
+sink(constraints.file)
+cat("Training bt - opt 20\n")
+check_constraints(bt_training.20)
+cat("=======================================\n")
+cat("Training bt - opt 5\n")
+check_constraints(bt_training.5)
+cat("=======================================\n")
+cat("Training bt - opt 1\n")
+check_constraints(bt_training.1)
+cat("=======================================\n")
+sink()
+
+# Options of relevant stat about port on each dataset
+analysis_options <- expand_grid(stat="CumReturns", horizon=c(1,5,21))
+
+# Perform Backtest - Test data | Add backtestTable to bt and analysis to each dataset of bt
+bt_test <- portfolioBacktest(portfolios, bt_test.datasets,
+                             rebalance_every=1, optimize_every = 1) %>%
+  add_performances %>%
+  set_names(portfolios.names) %>%
+  add_backtestTable_attr(table_measures) %>%
+  add_analysis_attr %>%
+  add_multiple_analysis(analysis_options)
+
+sink(constraints.file, append = TRUE)
+cat("Test bt - opt 1\n")
+check_constraints(bt_test)
+cat("=======================================\n")
+sink()
+
+write_rds(bt_test, 'data/backtest_test.rds')
 
 ##########################################################################################################
 ########## The following section is computational and memory intensive - Recommended to NOT Run ##########
 ##########################################################################################################
-
-# Import simulated returns and then
-# transform the 3-D array into a list of xts objects using
-# simulation_dates as index to all instances
-simulated_logreturns <- read_rds('data/simulated_logreturns.rds') %>%
-  split.along.dim(3) %>%
-  lapply(as.xts, order.by=test_dates) # %>% `[`(1:100) # STAGE ONLY
-
-# Get Simulated Prices
-simulated_prices <- lapply(simulated_logreturns, simulate_prices, prices_training)
-
-# Perform Backtest
-### Realized data
-bt_real_20 <- portfolioBacktest(portfolios, realized_prices,
-                            benchmark = "1/N",
-                            rebalance_every=5,
-                            optimize_every = 20,
-                            show_progress_bar = TRUE)
-
-bt_real_5 <- portfolioBacktest(portfolios, realized_prices,
-                               benchmark = "1/N",
-                               rebalance_every=5,
-                               optimize_every = 5,
-                               show_progress_bar = TRUE)
-
-bt_real_1 <- portfolioBacktest(portfolios, realized_prices,
-                               benchmark = "1/N",
-                               rebalance_every=1,
-                               optimize_every = 1,
-                               show_progress_bar = TRUE)
-
-names(bt_real_1)[5] <- names(bt_real_5)[5] <- names(bt_real_20)[5] <- "ew"
-
-# Add custom performance metrics
-bt_real_20 <- add_performances(bt_real_20)
-bt_real_5 <- add_performances(bt_real_5)
-bt_real_1 <- add_performances(bt_real_1)
-
-write_rds(bt_real_20, 'data/backtest_portfolios_realized_data_opt20.rds')
-write_rds(bt_real_5, 'data/backtest_portfolios_realized_data_opt5.rds')
-write_rds(bt_real_1, 'data/backtest_portfolios_realized_data_opt1.rds')
-
-# Measures to generate the backtest table attribute to each bt
-table_measures <- c(names(bt_real_20[[1]][[1]]$performance), "error", "cpu time")
-
-# Add backtestTable (list of matrices of each performance metric for each dataset and portfolio) as attribute to bt
-attr(bt_real_20, "backtestTable") <-  backtestTable(bt_real_20, measures = table_measures)
-attr(bt_real_5, "backtestTable") <-  backtestTable(bt_real_5, measures = table_measures)
-attr(bt_real_1, "backtestTable") <-  backtestTable(bt_real_1, measures = table_measures)
-
-# Add the analysis attribute to each bt's port
-bt_real_20 <- portfolio_analysis(bt_real_20)
-bt_real_5 <- portfolio_analysis(bt_real_5)
-bt_real_1 <- portfolio_analysis(bt_real_1)
-
-analysis_options <- expand_grid(stat="CumReturns", horizon=c(1,5,20))
-
-bt_real_20 <- add_multiple_analysis(bt_real_20, analysis_options)
-bt_real_5 <- add_multiple_analysis(bt_real_5, analysis_options)
-bt_real_1 <- add_multiple_analysis(bt_real_1, analysis_options)
-
-write_rds(bt_real_20, 'data/backtest_portfolios_realized_data_opt20_plus_attributes.rds')
-write_rds(bt_real_5, 'data/backtest_portfolios_realized_data_opt5_plus_attributes.rds')
-write_rds(bt_real_1, 'data/backtest_portfolios_realized_data_opt1_plus_attributes.rds')
-
-# Check hypothesized constraints
-sink(constraints.file.real)
-cat("Real bt - opt 20\n")
-check_constraints(bt_real_20)
-cat("=======================================\n")
-cat("Real bt - opt 5\n")
-check_constraints(bt_real_5)
-cat("=======================================\n")
-cat("Real bt - opt 1\n")
-check_constraints(bt_real_1)
-cat("=======================================\n")
-sink()
-
-# Clean memory space for further processing
-rm(bt_real_20, bt_real_5, bt_real_1); gc(reset = TRUE)
-
-
-
-
-
-# expand options to simulation data backtest
+# expand options to simulation backtests --- the order of c("VaR","CVaR") matters for code performance
 analysis_options <- analysis_options %>%
-  bind_rows(expand_grid(stat=c("CVaR","VaR"), alpha=list(c(0.90,0.95,0.99)), horizon=c(1,5,20))) %>%
-  bind_rows(expand_grid(stat=c("CVaR","VaR"), alpha=list(c(0.90,0.95,0.99))))
+  bind_rows(expand_grid(stat=c("VaR","CVaR"), alpha=list(c(0.90,0.95,0.99)), horizon=c(1,5,21)))
 
-###### Sim data - opt 20
-bt_sim_20 <- portfolioBacktest(portfolios, simulated_prices,
-                               benchmark = "1/N",
-                               rebalance_every=5,
-                               optimize_every = 20,
-                               show_progress_bar = TRUE,
-                               paral_portfolios = 4)
-names(bt_sim_20)[5] <- "ew"
+# Get datasets for simulations backtest
+bt_simulations.multi_datasets <- read_rds('data/simulated_prices.rds')
 
+chunks <- split_into_chuncks(bt_simulations.multi_datasets, chunk.size = 8)
 
-# Check hypothesized constraints - Output results are saved in constraints.file
-sink(constraints.file)
-cat("Sim bt - opt 20\n")
-check_constraints(bt_sim_20)
-cat("=======================================\n")
-sink()
+for(g in names(chunks)) {
+    message('Simulating chunk:', g)
+    message('First date in group:', chunks[[g]][1])
 
-
-# Save bt
-write_rds(bt_sim_20, 'data/backtest_portfolios_simulated_data_opt20.rds')
-
-bt_sim_20 <- add_performances(bt_sim_20)
-attr(bt_sim_20, "backtestTable") <-  backtestTable(bt_sim_20, measures = table_measures)
-
-bt_sim_20 <- portfolio_analysis(bt_sim_20)
-
-bt_sim_20 <- add_multiple_analysis(bt_sim_20, analysis_options)
-
-# Save bt with attributes
-write_rds(bt_sim_20, 'data/backtest_portfolios_simulated_data_opt20_plus_attributes.rds')
-
-bt_sim_20 <- lapply_ka(bt_sim_20, function(port) {port[] <- NULL;port})
-
-# Save bt with only attributes, no more individual datasets
-write_rds(bt_sim_20, 'data/bt_sim_opt20_only_backtestTable_and_analysis.rds')
-
-rm(bt_sim_20); gc(reset = TRUE)
+    bt_chunk <-
+      lapply(chunks[[g]], function(bt.date){
+        portfolioBacktest(portfolios, bt_simulations.multi_datasets[[bt.date]],
+                          rebalance_every=1, optimize_every = 1,
+                          paral_portfolios = 5) %>%
+          set_names(portfolios.names)
+      }) %>%
+      set_names(chunks[[g]]) %>%
+      lapply(function(date.bt){
+        add_analysis_attr(date.bt) %>%
+          add_multiple_analysis(analysis_options)
+      })
 
 
+    # Save partial bt with attributes
+    write_rds(bt_chunk, paste0('data/backtest_simulations_part', g,'.rds'))
 
-###### Sim data - opt 5
-bt_sim_5 <- portfolioBacktest(portfolios, simulated_prices,
-                            benchmark = "1/N",
-                            rebalance_every=5,
-                            optimize_every = 5,
-                            show_progress_bar = TRUE,
-                            paral_portfolios = 4)
-names(bt_sim_5)[5] <- "ew"
+    bt_chunk <-
+    lapply(bt_chunk, function(date.sim){
+      lapply_ka(date.sim, function(port) {port[] <- NULL;port})
+    })
 
+    # Save partial bt only with attributes
+    write_rds(bt_chunk, paste0('data/backtest_simulations_only_performance_part', g,'.rds'))
 
-sink(constraints.file, append = TRUE)
-cat("Sim bt - opt 5\n")
-check_constraints(bt_sim_5)
-cat("=======================================\n")
-sink()
+    rm(bt_chunk)
+    gc(verbose = TRUE, reset = TRUE)
+}
 
+bt_simulations <- list()
 
-# Save bt
-write_rds(bt_sim_5, 'data/backtest_portfolios_simulated_data_opt5.rds')
-
-bt_sim_5 <- add_performances(bt_sim_5)
-attr(bt_sim_5, "backtestTable") <-  backtestTable(bt_sim_5, measures = table_measures)
-
-bt_sim_5 <- portfolio_analysis(bt_sim_5)
-bt_sim_5 <- add_multiple_analysis(bt_sim_5, analysis_options)
-
-# Save bt with attributes
-write_rds(bt_sim_5, 'data/backtest_portfolios_simulated_data_opt5_plus_attributes.rds')
-
-bt_sim_5 <- lapply_ka(bt_sim_5, function(port) {port[] <- NULL;port})
+for(g in names(chunks)){
+  bt_simulations <- c(
+    bt_simulations,
+    read_rds(paste0('data/backtest_simulations_only_performance_part', g,'.rds')))
+}
 
 # Save bt with only attributes, no more individual datasets
-write_rds(bt_sim_5, 'data/bt_sim_opt5_only_backtestTable_and_analysis.rds')
-
-rm(bt_sim_5); gc(reset = TRUE)
+write_rds(bt_simulations, 'data/backtest_simulations_only_performance.rds')
 
 
 
 
 
 
-###### Sim data - opt 1
-bt_sim_1 <- portfolioBacktest(portfolios, simulated_prices,
-                              benchmark = "1/N",
-                              rebalance_every=1,
-                              optimize_every = 1,
-                              show_progress_bar = TRUE,
-                              paral_portfolios = 4)
-names(bt_sim_1)[5] <- "ew"
-
-sink(constraints.file, append = TRUE)
-cat("Sim bt - opt 1\n")
-check_constraints(bt_sim_1)
-cat("=======================================\n")
-sink()
 
 
-# Save bt
-write_rds(bt_sim_1, 'data/backtest_portfolios_simulated_data_opt1.rds')
 
-bt_sim_1 <- add_performances(bt_sim_1)
-attr(bt_sim_1, "backtestTable") <-  backtestTable(bt_sim_1, measures = table_measures)
 
-bt_sim_1 <- portfolio_analysis(bt_sim_1)
-bt_sim_1 <- add_multiple_analysis(bt_sim_1, analysis_options)
 
-# Save bt with attributes
-write_rds(bt_sim_1, 'data/backtest_portfolios_simulated_data_opt1_plus_attributes.rds')
 
-bt_sim_1 <- lapply_ka(bt_sim_1, function(port) {port[] <- NULL;port})
 
-# Save bt with only attributes, no more individual datasets
-write_rds(bt_sim_1, 'data/bt_sim_opt1_only_backtestTable_and_analysis.rds')
+# TESTING - APAGAR
+chunks <- split_into_chuncks(tail(bt_simulations.multi_datasets), chunk.size=1)
 
-rm(bt_sim_1); gc(reset = TRUE)
+#### APAGAR
+bt_simulations <- read_rds('data/backtest_simulations_only_performance.rds')
+
+# All available measures table_measures - APAGAR
+# table_measures <- c(
+#   "Sharpe ratio","max drawdown","annual return","annual volatility",
+#   "Sortino ratio","downside deviation","Sterling ratio","Omega ratio",
+#   "VaR (0.95)","CVaR (0.95)","rebalancing period","turnover","ROT (bps)",
+#   "CAGR","Geometric SR","error","cpu time")
+
+
+
+date.bt <- bt_simulations[[1]]
+an <- get_analysis(bt_simulations[[1]][[1]])
+get_analysis(bt_simulations[[17]][[2]])
+
+
+debugonce(get_CVaR)
+debug(get_CVaR)
+undebug(get_CVaR)
+
+
+
+
+
+
+data(SP500_symbols)  # load the SP500 symbols
+# download data from internet
+SP500 <- stockDataDownload(stock_symbols = SP500_symbols,
+                           from = "2008-12-01", to = "2018-12-01")
+
+my_dataset_list <- financialDataResample(SP500,
+                                         N_sample = 50, T_sample = 252*2,
+                                         num_datasets = 10)
+
+
+
+
+
+
+
+
+# # Open issue in xts github
+# .x <- .xts(c(1:5,NaN),1:6)
+# .x <- cbind(.x,.x)
+# rollapply(.x, width = 6, prod)

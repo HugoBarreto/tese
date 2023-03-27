@@ -1,9 +1,13 @@
 .Rproj.user
 .Rhistory
-.RData
+.RData*
 .Ruserdata
 **/*.pdf
 **/*.png
 **/*.tex
 
-data/backtest_portfolios_simulated_data.rds
+data/backtest_*
+data/simulated_*
+data/simulations*
+data/U-rCopula.rds
+
